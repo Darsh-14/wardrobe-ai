@@ -41,6 +41,12 @@ const server = serve({ fetch: createApp(deps).fetch, port: config.PORT }, (info)
   console.log(`Wardrobe AI API on http://localhost:${info.port} (AI: ${config.AI_PROVIDER}, storage: ${config.STORAGE_DRIVER})`),
 )
 
+// say clearly in the host's logs whether the database is reachable
+db.sql`select 1`.then(
+  () => console.log("Database connection OK"),
+  (err: Error) => console.error(`Database connection FAILED: ${err.message} (check DATABASE_URL)`),
+)
+
 const shutdown = async () => {
   server.close()
   await deps.jobs.idle()

@@ -28,9 +28,13 @@ export function createApp(deps: Deps, opts: { log?: boolean } = {}) {
   app.onError(onError)
   app.notFound((c) => c.json({ error: "Not found" }, 404))
 
+  // Always 200 once the server is up, so a host's health check passes and the problem can be read here
   app.get("/api/health", async (c) => {
-    await deps.db.sql`select 1`
-    return c.json({ ok: true, ai: config.AI_PROVIDER, images: deps.images.enabled, storage: config.STORAGE_DRIVER })
+    const database = await deps.db.sql`select 1`.then(
+      () => "ok",
+      (err: Error) => `error: ${err.message}`,
+    )
+    return c.json({ ok: database === "ok", database, ai: config.AI_PROVIDER, images: deps.images.enabled, storage: config.STORAGE_DRIVER })
   })
   app.route("/api/auth", authRoutes(config))
 

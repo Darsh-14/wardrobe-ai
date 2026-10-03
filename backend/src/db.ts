@@ -9,7 +9,12 @@ export type Tx = postgres.TransactionSql
 export type Db = ReturnType<typeof createDb>
 
 export function createDb(url: string) {
+  const host = new URL(url).hostname
+  const local = ["localhost", "127.0.0.1", "::1"].includes(host) || !host.includes(".")
   const sql = postgres(url, {
+    // hosted Postgres (Supabase) over TLS; plain connections for local dev
+    ssl: local ? false : "require",
+    connect_timeout: 15,
     // Supabase's transaction pooler does not support prepared statements
     prepare: false,
     max: 10,
