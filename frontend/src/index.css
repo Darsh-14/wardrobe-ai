@@ -1,0 +1,80 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'DM Sans', sans-serif;
+  --font-serif: 'Instrument Serif', serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f8f7f2;
+  color: #20251f;
+  font-family: 'DM Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: #d8ff60;
+  color: #20251f;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@keyframes orb {
+  0%, 100% { transform: translate(-12%, -8%) scale(1); }
+  50% { transform: translate(12%, 8%) scale(1.2); }
+}
+
+@keyframes rings {
+  0%, 100% { transform: scale(.96) rotate(0deg); }
+  50% { transform: scale(1.04) rotate(5deg); }
+}
+
+.ai-orb {
+  animation: orb 4s ease-in-out infinite;
+}
+
+.ai-rings {
+  animation: rings 2.4s ease-in-out infinite;
+}
+
+@media (max-width: 640px) {
+  .hero-grid {
+    min-height: 720px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

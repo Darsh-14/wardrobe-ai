@@ -1,0 +1,32 @@
+# Render Blueprint: one free web service runs the API and serves the web app.
+# Render > New > Blueprint > pick this repo. It asks for the values marked sync: false.
+services:
+  - type: web
+    name: wardrobe-ai
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: SUPABASE_URL
+        value: https://gviaofitrentsdwalase.supabase.co
+      # publishable key (safe to share); used for sign-up and sign-in
+      - key: SUPABASE_ANON_KEY
+        value: sb_publishable_9EjjMJXWrZvdhFbUGYbIPg_9hKiIq76
+      # Supabase > Connect > Session pooler, with your database password filled in
+      - key: DATABASE_URL
+        sync: false
+      # Supabase > Project Settings > API Keys > secret key (sb_secret_...)
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # https://aistudio.google.com/apikey (free)
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: AI_PROVIDER
+        value: gemini
+      - key: STORAGE_DRIVER
+        value: supabase
+      - key: WEATHER_PROVIDER
+        value: open-meteo

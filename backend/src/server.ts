@@ -1,0 +1,51 @@
+import { existsSync } from "node:fs"
+import { serve } from "@hono/node-server"
+import { createImageAI } from "./ai/images.js"
+import { claudeAsk } from "./ai/claude.js"
+import { geminiAsk } from "./ai/gemini.js"
+import { createMockStylist } from "./ai/mock.js"
+import { createStylist } from "./ai/stylist.js"
+import { createApp } from "./app.js"
+import { loadConfig } from "./config.js"
+import { createDb } from "./db.js"
+import { Jobs, type Deps } from "./deps.js"
+import { createStorage } from "./storage.js"
+import { createWeather } from "./weather.js"
+
+// local dev reads .env; hosts (Render) pass real environment variables instead
+if (existsSync(".env")) process.loadEnvFile(".env")
+const config = loadConfig()
+const db = createDb(config.DATABASE_URL)
+const deps: Deps = {
+  config,
+  db,
+  storage: createStorage(config),
+  stylist:
+    config.AI_PROVIDER === "mock"
+      ? createMockStylist()
+      : createStylist(
+          config.AI_PROVIDER === "claude"
+            ? claudeAsk(config.ANTHROPIC_API_KEY!, config.CLAUDE_MODEL)
+            : geminiAsk(config.GEMINI_API_KEY!, [config.GEMINI_MODEL, ...config.GEMINI_FALLBACK_MODELS.split(",").map((m) => m.trim())]),
+        ),
+  images: createImageAI({
+    token: config.REPLICATE_API_TOKEN,
+    imageModel: config.REPLICATE_IMAGE_MODEL,
+    bgModel: config.REPLICATE_BG_REMOVAL_MODEL,
+  }),
+  weather: createWeather(db, config.WEATHER_PROVIDER),
+  jobs: new Jobs(),
+}
+
+const server = serve({ fetch: createApp(deps).fetch, port: config.PORT }, (info) =>
+  console.log(`Wardrobe AI API on http://localhost:${info.port} (AI: ${config.AI_PROVIDER}, storage: ${config.STORAGE_DRIVER})`),
+)
+
+const shutdown = async () => {
+  server.close()
+  await deps.jobs.idle()
+  await db.end()
+  process.exit(0)
+}
+process.on("SIGINT", shutdown)
+process.on("SIGTERM", shutdown)
