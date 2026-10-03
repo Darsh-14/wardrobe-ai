@@ -54,7 +54,9 @@ export function onError(err: Error, c: Context) {
     return c.json({ error: "Invalid reference or duplicate" }, 400)
   }
   console.error(err)
-  return c.json({ error: "Something went wrong" }, 500)
+  // Postgres errors carry a severity; keep their details in the logs. Others (storage, AI) are safe to show.
+  const detail = (err as { severity?: string }).severity ? "" : `: ${err.message}`.slice(0, 300)
+  return c.json({ error: `Something went wrong${detail}` }, 500)
 }
 
 const IMAGE_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }
