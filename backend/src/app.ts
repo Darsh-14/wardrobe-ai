@@ -30,10 +30,15 @@ export function createApp(deps: Deps, opts: { log?: boolean } = {}) {
 
   // Always 200 once the server is up, so a host's health check passes and the problem can be read here
   app.get("/api/health", async (c) => {
-    const database = await deps.db.sql`select 1`.then(
-      () => "ok",
-      (err: Error) => `error: ${err.message}`,
-    )
+    // answer within a few seconds even when the database hangs, so the host's health check doesn't time out
+    const timeout = new Promise<string>((r) => setTimeout(() => r("error: no answer from the database within 3s"), 3000))
+    const database = await Promise.race([
+      deps.db.sql`select 1`.then(
+        () => "ok",
+        (err: Error) => `error: ${err.message}`,
+      ),
+      timeout,
+    ])
     return c.json({ ok: database === "ok", database, ai: config.AI_PROVIDER, images: deps.images.enabled, storage: config.STORAGE_DRIVER })
   })
   app.route("/api/auth", authRoutes(config))

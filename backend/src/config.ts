@@ -13,7 +13,9 @@ const Env = z.object({
   STATIC_DIR: z.string().optional(),
 
   // Postgres connection (Supabase: Project Settings > Database > connection string, "Session" pooler)
-  DATABASE_URL: z.string().min(1),
+  DATABASE_URL: z
+    .string()
+    .regex(/^postgres(ql)?:\/\//, "must be a postgresql:// connection string (Supabase > Connect > Session pooler), not the https:// project URL"),
 
   // Supabase project. SUPABASE_JWT_SECRET verifies access tokens locally (HS256); without it the
   // API verifies against the project's JWKS at SUPABASE_URL/auth/v1/.well-known/jwks.json.
