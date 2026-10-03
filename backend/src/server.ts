@@ -6,7 +6,7 @@ import { geminiAsk } from "./ai/gemini.js"
 import { createMockStylist } from "./ai/mock.js"
 import { createStylist } from "./ai/stylist.js"
 import { createApp } from "./app.js"
-import { loadConfig } from "./config.js"
+import { loadConfig, type Config } from "./config.js"
 import { createDb } from "./db.js"
 import { Jobs, type Deps } from "./deps.js"
 import { createStorage } from "./storage.js"
@@ -14,7 +14,25 @@ import { createWeather } from "./weather.js"
 
 // local dev reads .env; hosts (Render) pass real environment variables instead
 if (existsSync(".env")) process.loadEnvFile(".env")
-const config = loadConfig()
+const config: Config = await loadConfigOrServeError()
+
+async function loadConfigOrServeError(): Promise<Config> {
+  try {
+    return loadConfig()
+  } catch (err) {
+    // Stay up and say what's wrong (in the logs and at /api/health) instead of crash-looping on the host
+    const message = (err as Error).message
+    console.error(message)
+    const port = Number(process.env.PORT) || 8787
+    // /api/health answers 200 so the host marks the deploy live and the error can be read there
+    const fetch = (req: Request) =>
+      Response.json({ ok: false, error: message }, { status: new URL(req.url).pathname === "/api/health" ? 200 : 503 })
+    serve({ fetch, port }, () =>
+      console.error(`Not configured; serving the error on port ${port}. Fix the environment variables and redeploy.`),
+    )
+    return new Promise<never>(() => {})
+  }
+}
 const db = createDb(config.DATABASE_URL)
 const deps: Deps = {
   config,
