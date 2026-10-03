@@ -50,7 +50,9 @@ const Env = z.object({
 export type Config = z.infer<typeof Env>
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
-  const parsed = Env.safeParse(env)
+  // values pasted into a host's settings often carry stray spaces or a trailing newline
+  const trimmed = Object.fromEntries(Object.entries(env).map(([k, v]) => [k, v?.trim()]))
+  const parsed = Env.safeParse(trimmed)
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n  ")
     throw new Error(`Invalid configuration:\n  ${issues}`)
