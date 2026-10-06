@@ -1,5 +1,6 @@
-// Weather for the top bar, home card and look generation. Uses Open-Meteo (free, no API key)
-// and caches current conditions per city in weather_cache for 30 minutes.
+// Weather for the top bar, home card and look generation. Uses Open-Meteo (free, no API key), falls
+// back to wttr.in (also free) when Open-Meteo fails, and caches current conditions per city in
+// weather_cache for 30 minutes.
 import type { Db } from "./db.js"
 
 export type Weather = { tempC: number; condition: string; advice: string }
@@ -42,13 +43,15 @@ export function createWeather(db: Db, provider: "open-meteo" | "mock"): WeatherS
     return { get: async () => ({ tempC: 22, condition: "Partly cloudy", advice: "Light layers recommended" }) }
   }
 
+  const get = (url: string) => fetch(url, { signal: AbortSignal.timeout(8000) })
+
   async function geocode(location: string) {
     // "Hauz Khas, New Delhi" -> try the whole string, then the last part ("New Delhi")
     const parts = location.split(",").map((s) => s.trim()).filter(Boolean)
     for (const name of [location, ...parts.reverse()]) {
       const url = `https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(name)}`
-      const res = await fetch(url)
-      if (!res.ok) continue
+      const res = await get(url)
+      if (!res.ok) throw new Error(`Location service returned ${res.status}`)
       const hit = (await res.json()).results?.[0]
       if (hit) return { lat: hit.latitude as number, lon: hit.longitude as number }
     }
@@ -60,7 +63,7 @@ export function createWeather(db: Db, provider: "open-meteo" | "mock"): WeatherS
     const url =
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       `&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&forecast_days=16&timezone=UTC`
-    const res = await fetch(url)
+    const res = await get(url)
     if (!res.ok) throw new Error(`Weather service returned ${res.status}`)
     const data = await res.json()
     let temp: number = data.current.temperature_2m
@@ -77,6 +80,36 @@ export function createWeather(db: Db, provider: "open-meteo" | "mock"): WeatherS
     return { tempC: Math.round(temp), condition, advice: adviceFor(temp, condition) }
   }
 
+  // Current conditions only; used when Open-Meteo is down or rate limits the host's shared IP.
+  async function fetchWttr(location: string): Promise<Weather> {
+    const res = await get(`https://wttr.in/${encodeURIComponent(location)}?format=j1`)
+    if (!res.ok) throw new Error(`Backup weather service returned ${res.status}`)
+    const now = (await res.json()).current_condition?.[0]
+    const temp = Number(now?.temp_C)
+    if (!now || !Number.isFinite(temp)) throw new Error(`Unknown location: ${location}`)
+    const text: string = now.weatherDesc?.[0]?.value ?? ""
+    const condition =
+      /thunder/i.test(text) ? "Thunderstorms" : /snow|sleet|blizzard|ice/i.test(text) ? "Snow"
+      : /drizzle/i.test(text) ? "Drizzle" : /rain|shower/i.test(text) ? "Rain"
+      : /fog|mist|haze/i.test(text) ? "Foggy" : /overcast/i.test(text) ? "Overcast"
+      : /cloud/i.test(text) ? "Partly cloudy" : /clear|sunny/i.test(text) ? "Clear" : "Mixed"
+    return { tempC: Math.round(temp), condition, advice: adviceFor(temp, condition) }
+  }
+
+  async function fetchAny(location: string, at?: Date): Promise<Weather> {
+    try {
+      return await fetchWeather(location, at)
+    } catch (err) {
+      console.warn(`Open-Meteo failed for "${location}": ${(err as Error).message}; trying wttr.in`)
+      try {
+        return await fetchWttr(location)
+      } catch (err2) {
+        console.warn(`wttr.in failed for "${location}": ${(err2 as Error).message}`)
+        throw err
+      }
+    }
+  }
+
   return {
     async get(location, at) {
       const key = location.trim().toLowerCase()
@@ -86,7 +119,7 @@ export function createWeather(db: Db, provider: "open-meteo" | "mock"): WeatherS
                                    where city_key = ${key} and fetched_at > now() - make_interval(mins => ${CACHE_MINUTES})`
         if (hit) return hit.data as Weather
       }
-      const weather = await fetchWeather(location, future ? at : undefined)
+      const weather = await fetchAny(location, future ? at : undefined)
       if (!future) {
         await db.sql`insert into weather_cache (city_key, data) values (${key}, ${db.sql.json(weather)})
                      on conflict (city_key) do update set data = excluded.data, fetched_at = now()`
