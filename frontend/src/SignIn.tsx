@@ -50,10 +50,7 @@ export default function SignIn() {
       </section>
       <main className="flex items-center justify-center py-10">
         <div className="w-full max-w-md">
-          <div className="flex items-center gap-2.5">
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-[#d8ff60]"><svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3Z"/><path d="m5 15 .7 2.3L8 18l-2.3.7L5 21l-.7-2.3L2 18l2.3-.7L5 15ZM19 13l.6 1.7 1.7.6-1.7.6L19 18l-.6-2.1-1.7-.6 1.7-.6L19 13Z"/></svg></span>
-            <span className="font-serif text-2xl tracking-tight">Wardrobe <i className="font-normal">AI</i></span>
-          </div>
+          <img src={`${import.meta.env.BASE_URL}brand/logo.png`} alt="Wardrobe AI" className="h-20 w-auto"/>
           <div className="mt-10 font-serif text-5xl tracking-tight">{signup ? "Create your account." : "Welcome back."}</div>
           <p className="mt-3 text-sm text-[#737a70]">{signup ? "Your wardrobe and looks stay private to you." : "Sign in to see your wardrobe and looks."}</p>
           <form onSubmit={submit} className="mt-8 space-y-3 rounded-[32px] border border-black/6 bg-white p-5 shadow-[0_20px_80px_rgba(28,35,27,.07)] sm:p-7">
