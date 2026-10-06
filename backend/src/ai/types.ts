@@ -129,6 +129,8 @@ export type TryOnRequest = {
   prompt: string
   /** Photos of the actual pieces (background removed where possible), for models that take images */
   garments?: ImageBytes[]
+  /** What each garment photo shows, in the same order, e.g. "top: Yellow Cotton Kurta" */
+  labels?: string[]
   /** Optional face photo the person should resemble */
   face?: ImageBytes | null
   /** "studio": redo the photo in `garments` as a catalogue shot (the prompt explains the image itself) */

@@ -2,7 +2,7 @@ import sharp from "sharp"
 import { expect, it } from "vitest"
 import { createImageAI, fitReference } from "../src/ai/images.js"
 import type { ItemRow, LookRow } from "../src/queries.js"
-import { tryOnPrompt } from "../src/tryon.js"
+import { garmentLabels, tryOnPrompt } from "../src/tryon.js"
 import { studioEditPrompt, studioPrompt } from "../src/studio.js"
 
 const look = {
@@ -22,8 +22,20 @@ it("describes the user's body, the pieces and a scene at the destination", () =>
   expect(p).toContain("Wearing: Ivory Cotton Button-down; Light blue Wide-leg jeans.")
   expect(p).toContain("office lobby in Bandra, Mumbai")
   expect(p).toContain("Morning light, humid weather")
+  expect(p).toContain("from the top of the head to the feet is in frame")
   expect(tryOnPrompt({ body: {}, look, items, scene: "on the steps of a glass tower" })).toContain(
     "Setting and pose: on the steps of a glass tower (Office).",
+  )
+})
+
+it("names each piece and keeps the bottoms visible under the top", () => {
+  const outfit = [
+    { name: "Yellow kurta", category: "Tops", color: "Yellow", material: "Cotton", subcategory: "Kurta" },
+    { name: "Jeans", category: "Bottoms", color: "Blue", material: "Denim", subcategory: "Straight jeans" },
+  ] as ItemRow[]
+  expect(garmentLabels(outfit)).toEqual(["top: Yellow Cotton Kurta", "bottoms: Blue Denim Straight jeans"])
+  expect(tryOnPrompt({ body: { model: "Woman" }, look, items: outfit })).toContain(
+    "The Yellow Cotton Kurta is worn over the Blue Denim Straight jeans, and the Blue Denim Straight jeans are clearly visible below its hem all the way down to the ankles.",
   )
 })
 
@@ -115,9 +127,34 @@ it("edits from the user's own photos with FLUX.2 klein", async () => {
   const face = { bytes: new Uint8Array([2]), contentType: "image/png" }
   await cf.generate({ prompt: "A man at the office.", garments: [jeans, jeans], face })
   expect(forms[1].form.get("prompt")).toBe(
-    "A man at the office. Images 0 to 1 are the user's own clothes: dress the person in exactly these pieces, keeping their colours, wash, prints, details and cut. Image 2 is the person's face: the person must look like them.",
+    "A man at the office. Images 0 to 1 are the user's own clothes. Dress the person in exactly all of these pieces together, every one clearly visible, keeping their colours, wash, prints, details and cut. Image 2 is the person's face: the person must look like them.",
   )
   expect((forms[1].form.get("input_image_2") as Blob).type).toBe("image/png")
+
+  // labelled photos say which piece each one is
+  await cf.generate({ prompt: "A woman.", garments: [jeans, jeans], labels: ["top: Yellow Cotton Kurta", "bottoms: Blue Denim Jeans"] })
+  expect(forms[2].form.get("prompt")).toContain("Image 0 is the user's top: Yellow Cotton Kurta. Image 1 is the user's bottoms: Blue Denim Jeans.")
+})
+
+it("uses the try-on model for try-ons only, and falls back when it fails", async () => {
+  const urls: string[] = []
+  const cf = createImageAI({
+    replicateImageModel: "",
+    replicateBgModel: "",
+    freeImages: "none",
+    pollinationsUrl: "",
+    cloudflare: { accountId: "acc", token: "tok", model: "m1", editModel: "klein-4b", tryOnModel: "klein-9b" },
+    fetch: (async (url: string) => {
+      urls.push(url.split("/").pop()!)
+      // the bigger model is out of free quota today
+      return url.endsWith("klein-9b") ? Response.json({ errors: [{ message: "quota" }] }, { status: 429 }) : Response.json({ result: { image: Buffer.from([0xff]).toString("base64") } })
+    }) as typeof fetch,
+  })
+  const shirt = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
+  expect(await cf.generate({ prompt: "try-on", garments: [shirt] })).not.toBeNull()
+  expect(urls).toEqual(["klein-9b", "klein-4b"])
+  await cf.generate({ prompt: "studio", garments: [shirt], mode: "studio" })
+  expect(urls.slice(2)).toEqual(["klein-4b"])
 })
 
 it("shrinks phone photos below the 512x512 FLUX.2 limit before sending them", async () => {

@@ -364,7 +364,9 @@ function GeneratedLook({ look, setLook, occasion, retry }: { look: Look; setLook
     <div className="grid gap-5 lg:grid-cols-[1.35fr_.65fr]">
       <section className="relative min-h-[720px] overflow-hidden rounded-[32px] bg-[#ded8cc]">
         {view==="photo" && look.hasPicture
-          ? <img src={generatedLook.visualizationUrl || photos.hero} alt="AI visualization of you wearing the selected outfit" className="absolute inset-0 h-full w-full object-cover object-top"/>
+          // the whole picture, head to shoes (cropping it to fill the box cut off the trousers and shoes),
+          // over a blurred copy that fills the sides
+          ? <><img src={generatedLook.visualizationUrl || photos.hero} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-90"/><img src={generatedLook.visualizationUrl || photos.hero} alt="AI visualization of you wearing the selected outfit" className="absolute inset-0 h-full w-full object-contain"/></>
           : <ModelView look={look} timeOfDay={look.timeOfDay}/>}
         <div className="absolute left-4 top-4 z-10 flex gap-1 rounded-full bg-white/85 p-1 text-[11px] font-semibold backdrop-blur sm:left-6 sm:top-6">
           {(["photo","model"] as const).map(v=><button key={v} onClick={()=>setView(v)} aria-pressed={view===v} className={`rounded-full px-3 py-1.5 ${view===v?"bg-[#20251f] text-white":""}`}>{v==="photo" ? (look.hasPicture ? "AI photo" : look.visualizationStatus==="pending" ? "AI photo · making..." : "AI photo · unavailable") : "Outfit board"}</button>)}
