@@ -24,7 +24,7 @@ export type ImageOptions = {
   replicateBgModel: string
   geminiKey?: string
   geminiImageModel?: string
-  cloudflare?: { accountId: string; token: string; model: string; editModel: string }
+  cloudflare?: CloudflareOptions
   freeImages: "pollinations" | "none"
   pollinationsUrl: string
   fetch?: typeof fetch
@@ -88,16 +88,31 @@ function gemini(apiKey: string, model: string): Provider {
 export function referenceNote(req: TryOnRequest) {
   if (req.mode === "studio") return ""
   const n = req.garments?.length ?? 0
+  // with labels, each photo is named so the model knows which piece goes where (top over bottoms...)
+  const which = req.labels?.length
+    ? req.garments!.map((_, i) => `Image ${i} is the user's ${req.labels![i] ?? "garment"}.`).join(" ")
+    : `${n === 1 ? "Image 0 is" : `Images 0 to ${n - 1} are`} the user's own clothes.`
   return [
-    n ? `${n === 1 ? "Image 0 is" : `Images 0 to ${n - 1} are`} the user's own clothes: dress the person in exactly these pieces, keeping their colours, wash, prints, details and cut.` : "",
+    n ? `${which} Dress the person in exactly ${n === 1 ? "this piece" : "all of these pieces together, every one clearly visible"}, keeping their colours, wash, prints, details and cut.` : "",
     req.face ? `Image ${n} is the person's face: the person must look like them.` : "",
   ].join(" ").trim()
 }
 
-function cloudflare(cf: { accountId: string; token: string; model: string; editModel: string }, http: typeof fetch): Provider {
+type CloudflareOptions = {
+  accountId: string
+  token: string
+  /** text-only pictures */
+  model: string
+  /** edits from reference photos (studio photos, and try-ons unless tryOnModel is set) */
+  editModel: string
+  /** optional better model for try-ons; falls back to editModel when it fails (e.g. daily quota used up) */
+  tryOnModel?: string
+}
+
+function cloudflare(cf: CloudflareOptions, http: typeof fetch): Provider {
   let queue: Promise<unknown> = Promise.resolve()
   const url = (model: string) => `https://api.cloudflare.com/client/v4/accounts/${cf.accountId}/ai/run/${model}`
-  const once = async (req: TryOnRequest) => {
+  const once = async (req: TryOnRequest, editModel: string) => {
     // FLUX.2 klein takes up to 4 reference photos; the face goes last
     const refs = [...(req.garments ?? []).slice(0, req.face ? 3 : 4), ...(req.face ? [req.face] : [])]
     let res: Response
@@ -109,7 +124,7 @@ function cloudflare(cf: { accountId: string; token: string; model: string; editM
       small.forEach((r, i) => form.append(`input_image_${i}`, new Blob([r.bytes as Uint8Array<ArrayBuffer>], { type: r.contentType }), `ref${i}`))
       form.append("width", String(req.width ?? 768))
       form.append("height", String(req.height ?? 1024))
-      res = await http(url(cf.editModel), { method: "POST", headers: { Authorization: `Bearer ${cf.token}` }, body: form, signal: AbortSignal.timeout(120_000) })
+      res = await http(url(editModel), { method: "POST", headers: { Authorization: `Bearer ${cf.token}` }, body: form, signal: AbortSignal.timeout(120_000) })
     } else {
       res = await http(url(cf.model), {
         method: "POST",
@@ -128,7 +143,15 @@ function cloudflare(cf: { accountId: string; token: string; model: string; editM
     name: "cloudflare",
     // one at a time keeps a burst (a new wardrobe) inside the free plan's rate limit
     generate(req) {
-      const run = queue.then(() => once(req))
+      const tryOn = !!cf.tryOnModel && req.mode !== "studio" && !!(req.garments?.length || req.face)
+      const run = queue.then(() =>
+        tryOn
+          ? once(req, cf.tryOnModel!).catch((err: Error) => {
+              console.warn(`[images] cloudflare ${cf.tryOnModel} failed, using ${cf.editModel}: ${err.message}`)
+              return once(req, cf.editModel)
+            })
+          : once(req, cf.editModel),
+      )
       queue = run.catch(() => undefined)
       return run
     },

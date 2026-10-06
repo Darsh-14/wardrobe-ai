@@ -40,18 +40,55 @@ export function describePerson(body: BodyProfile) {
   return [`one ${who}`, size, traits && `with ${/^[aeiou]/i.test(traits) ? "an" : "a"} ${traits}`].filter(Boolean).join(", ")
 }
 
+// what each piece is on the body, so the picture model knows which photo goes where
+const ROLES: Record<string, string> = {
+  Outerwear: "outer layer",
+  Tops: "top",
+  Dresses: "dress",
+  Bottoms: "bottoms",
+  Shoes: "shoes",
+  Accessories: "accessory",
+}
+
+const describe = (i: Pick<ItemRow, "color" | "material" | "subcategory" | "name">) =>
+  [i.color, i.material, i.subcategory || i.name].filter(Boolean).join(" ")
+
+/** One label per item for the reference photos, e.g. "top: Yellow Cotton Kurta" */
+export function garmentLabels(items: Pick<ItemRow, "category" | "color" | "material" | "subcategory" | "name">[]) {
+  return items.map((i) => `${ROLES[i.category] ?? "garment"}: ${describe(i)}`)
+}
+
+/** How the pieces sit on the body, so none of them is hidden or left out */
+function layering(items: ItemRow[]) {
+  const find = (c: string) => items.find((i) => i.category === c)
+  const top = find("Tops") ?? find("Dresses")
+  const bottoms = find("Bottoms")
+  const outer = find("Outerwear")
+  const shoes = find("Shoes")
+  return [
+    top && bottoms
+      ? `The ${describe(top)} is worn over the ${describe(bottoms)}, and the ${describe(bottoms)} are clearly visible below its hem all the way down to the ankles.`
+      : "",
+    outer ? `The ${describe(outer)} is worn open on top.` : "",
+    shoes ? `The ${describe(shoes)} are visible on the feet.` : "",
+  ].filter(Boolean).join(" ")
+}
+
 export function tryOnPrompt(input: { body: BodyProfile; look: LookRow; items: ItemRow[]; scene?: string }) {
   const { body, look, items } = input
-  const pieces = items.map((i) => [i.color, i.material, i.subcategory || i.name].filter(Boolean).join(" ")).join("; ")
+  const pieces = items.map(describe).join("; ")
   const auto = sceneFor(look.occasion, look.location)
   const setting = input.scene?.trim() || `${auto.scene}, ${auto.pose}`
   const light = timeOfDay(look.event_at)
   const weather = look.weather?.condition ? `, ${look.weather.condition.toLowerCase()} weather` : ""
   return [
-    `Photorealistic full-body fashion photo of ${describePerson(body)}.`,
+    `Photorealistic full-length fashion photo of ${describePerson(body)}.`,
     `Wearing: ${pieces}.`,
+    layering(items),
     `Setting and pose: ${setting} (${look.occasion}).`,
     `${light === "Today" ? "Natural daylight" : `${light} light`}${weather}.`,
-    "Head to toe in frame with the shoes visible, 3:4 portrait, true-to-life colours, sharp focus, no text.",
-  ].join(" ")
+    // framing first: a model left to itself crops at the thighs and drops the trousers and shoes
+    "Wide full-body shot from a few metres away: the whole person from the top of the head to the feet is in frame, with space above the head and below the shoes, every piece of the outfit fully visible.",
+    "Shot on a full-frame camera with a 50 mm lens at eye level, sharp focus on the person, softly blurred background, natural skin texture, realistic fabric folds and drape, correct hands and anatomy, true-to-life colours, no text, no watermark.",
+  ].filter(Boolean).join(" ")
 }

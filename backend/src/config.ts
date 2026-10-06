@@ -51,6 +51,10 @@ const Env = z.object({
   CLOUDFLARE_IMAGE_MODEL: z.string().default("@cf/black-forest-labs/flux-1-schnell"),
   // edits from reference photos (the user's own clothes and face)
   CLOUDFLARE_EDIT_MODEL: z.string().default("@cf/black-forest-labs/flux-2-klein-4b"),
+  // Optional sharper model for "see it on you" pictures only, e.g. @cf/black-forest-labs/flux-2-klein-9b.
+  // It costs about 8x more of the free daily quota (about 6 pictures a day); when the quota runs out,
+  // try-ons fall back to CLOUDFLARE_EDIT_MODEL.
+  CLOUDFLARE_TRYON_MODEL: z.string().optional(),
   // Pollinations' keyless endpoint now asks for payment after one image, so it is off by default
   FREE_IMAGES: z.enum(["pollinations", "none"]).default("none"),
   POLLINATIONS_URL: z.string().default("https://image.pollinations.ai/prompt/"),

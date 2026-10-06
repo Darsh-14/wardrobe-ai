@@ -53,7 +53,7 @@ const deps: Deps = {
     geminiKey: config.GEMINI_API_KEY,
     geminiImageModel: config.GEMINI_IMAGE_MODEL,
     cloudflare: config.CLOUDFLARE_ACCOUNT_ID && config.CLOUDFLARE_API_TOKEN
-      ? { accountId: config.CLOUDFLARE_ACCOUNT_ID, token: config.CLOUDFLARE_API_TOKEN, model: config.CLOUDFLARE_IMAGE_MODEL, editModel: config.CLOUDFLARE_EDIT_MODEL }
+      ? { accountId: config.CLOUDFLARE_ACCOUNT_ID, token: config.CLOUDFLARE_API_TOKEN, model: config.CLOUDFLARE_IMAGE_MODEL, editModel: config.CLOUDFLARE_EDIT_MODEL, tryOnModel: config.CLOUDFLARE_TRYON_MODEL }
       : undefined,
     freeImages: config.FREE_IMAGES,
     pollinationsUrl: config.POLLINATIONS_URL,

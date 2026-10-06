@@ -18,7 +18,7 @@ import {
   type LookRow,
   type ProfileRow,
 } from "../queries.js"
-import { tryOnPrompt, type BodyProfile } from "../tryon.js"
+import { garmentLabels, tryOnPrompt, type BodyProfile } from "../tryon.js"
 import type { Weather } from "../weather.js"
 
 // Body of "Create my look" / "Try another": the generator's five fields (LookRequest)
@@ -285,7 +285,8 @@ function queueVisualization(deps: Deps, userId: string, lookId: string, scene?: 
             ctx.body.facePath ? deps.storage.download("avatars", ctx.body.facePath).catch(() => null) : null,
           ])
         : [undefined, null]
-      const image = await deps.images.generate({ prompt, garments, face })
+      // 2:3 portrait at 1024x1536 leaves room for a full-length figure in sharp detail
+      const image = await deps.images.generate({ prompt, garments, labels: garmentLabels(ctx.items), face, width: 1024, height: 1536 })
       if (!image) {
         await deps.db.asService((tx) =>
           tx`update looks set visualization_status = 'failed', error = 'image generation not configured' where id = ${lookId}`,
