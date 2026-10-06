@@ -1,5 +1,5 @@
 // Studio photos: the user's own photo of an item redone as a clean catalogue picture (on an
-// invisible mannequin, a trouser hanger, a dress form or a plinth): the same garment, with any part
+// invisible mannequin, a dress form or a plinth): the same garment, with any part
 // that was cut off or hidden filled in. The Wardrobe shows these, with the original one tap away.
 // Stored in ai_attributes.studio_path.
 import type { Deps } from "./deps.js"
@@ -13,7 +13,7 @@ export function studioEditPrompt(i: Pick<ItemRow, "category" | "name" | "color" 
     Tops: "on an invisible ghost mannequin showing its natural 3D shape, front view",
     Outerwear: "on an invisible ghost mannequin showing its natural 3D shape, front view",
     Dresses: "on a tailor's dress form mannequin with a wooden neck cap",
-    Bottoms: "neatly folded over a wooden trouser hanger, hanging straight, front view",
+    Bottoms: "on an invisible ghost mannequin, full and rounded as if worn, both legs straight and filled out, waistband open and round, front view",
     Shoes: "as a pair, three-quarter view on a low white plinth",
     Accessories: "on a small white plinth",
   }[i.category]
@@ -36,7 +36,7 @@ export function studioPrompt(i: Pick<ItemRow, "category" | "name" | "color" | "m
     case "Dresses":
       return `Product photo of a ${what} (${i.name}) on a tailor's dress form mannequin with a wooden neck cap, cream wall, ${BACKDROP}`
     case "Bottoms":
-      return `Product photo of ${what} (${i.name}) neatly folded over a wooden trouser hanger, hanging, front view, ${BACKDROP}`
+      return `Ghost mannequin product photo of ${what} (${i.name}), full and rounded as if worn, both legs straight, front view, ${BACKDROP}`
     case "Shoes":
       return `Product photo of a pair of ${what} (${i.name}), three-quarter view on a low white plinth, ${BACKDROP}`
     default:

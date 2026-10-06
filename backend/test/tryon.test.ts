@@ -59,7 +59,7 @@ it("draws with the free provider and reports failures", async () => {
 
 it("asks for catalogue-style studio photos that match the samples", () => {
   const base = { name: "Light blue wash jeans", color: "Light blue", material: "Denim", pattern: "Solid", subcategory: "Straight jeans" }
-  expect(studioPrompt({ ...base, category: "Bottoms" })).toMatch(/^Product photo of Light blue Denim Straight jeans .*folded over a wooden trouser hanger/)
+  expect(studioPrompt({ ...base, category: "Bottoms" })).toMatch(/^Ghost mannequin product photo of Light blue Denim Straight jeans .*full and rounded as if worn/)
   expect(studioPrompt({ ...base, category: "Tops" })).toMatch(/^Ghost mannequin product photo/)
   expect(studioPrompt({ ...base, category: "Dresses" })).toContain("dress form mannequin")
   expect(studioPrompt({ ...base, pattern: "Floral", category: "Tops" })).toContain("floral Straight jeans")
@@ -117,6 +117,6 @@ it("edits from the user's own photos with FLUX.2 klein", async () => {
 it("asks to keep the same garment and fill in hidden parts", () => {
   const p = studioEditPrompt({ name: "Light blue wash jeans", category: "Bottoms", color: "Light blue", material: "Denim", pattern: "Solid", subcategory: "Straight jeans" })
   expect(p).toContain("Image 0 is a phone photo of the user's Light blue wash jeans.")
-  expect(p).toContain("wooden trouser hanger")
+  expect(p).toContain("full and rounded as if worn")
   expect(p).toContain("complete it so it matches the visible part")
 })

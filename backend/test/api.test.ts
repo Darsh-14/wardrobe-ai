@@ -203,7 +203,7 @@ describe("wardrobe", () => {
       const first = (await call(MAYA, "GET", "/api/wardrobe/items?category=Bottoms")).body
       expect(first[0].studioUrl).toBeNull()
       await deps.jobs.idle()
-      expect(prompts[0]).toMatch(/trouser hanger/)
+      expect(prompts[0]).toMatch(/full and rounded as if worn/)
       const again = (await call(MAYA, "GET", "/api/wardrobe/items?category=Bottoms")).body
       expect(again[0].studioUrl).toMatch(/-studio-\d+\.jpg$/)
       await deps.jobs.idle()
