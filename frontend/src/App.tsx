@@ -112,10 +112,13 @@ function Button({
   return <button type={type} onClick={onClick} className={`inline-flex items-center justify-center gap-2 rounded-full px-5 py-3.5 text-sm font-semibold transition-all duration-300 active:scale-[.98] ${variants[variant]} ${className}`}>{children}</button>;
 }
 
+// the logo: the hanger mark in a lime circle, then the wordmark (public/brand)
+const brand = (file: string) => `${import.meta.env.BASE_URL}brand/${file}`;
+
 function Brand() {
-  return <button className="group flex items-center gap-2.5" onClick={() => window.scrollTo(0, 0)}>
-    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#d8ff60] text-[#20251f] transition-transform group-hover:rotate-12"><Icon name="sparkles" size={18}/></span>
-    <span className="font-serif text-2xl tracking-tight">Wardrobe <i className="font-normal">AI</i></span>
+  return <button className="group flex items-center gap-2.5" onClick={() => window.scrollTo(0, 0)} aria-label="Wardrobe AI, back to top">
+    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#d8ff60] transition-transform group-hover:rotate-12"><img src={brand("mark.png")} alt="" className="w-[22px]"/></span>
+    <img src={brand("wordmark.png")} alt="Wardrobe AI" className="h-[22px] w-auto"/>
   </button>;
 }
 
