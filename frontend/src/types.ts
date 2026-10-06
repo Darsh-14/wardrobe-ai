@@ -37,6 +37,8 @@ export type WardrobeItem = {
   favorite?: boolean
   /** "cutout": background removed; "original": photo kept as taken; null: not cleaned up yet */
   photo?: "cutout" | "original" | null
+  /** catalogue-style studio photo of the item, when the picture service has made one */
+  studioUrl?: string | null
 }
 
 export type CategorySummary = {

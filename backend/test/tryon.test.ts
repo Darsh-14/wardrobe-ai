@@ -2,6 +2,7 @@ import { expect, it } from "vitest"
 import { createImageAI } from "../src/ai/images.js"
 import type { ItemRow, LookRow } from "../src/queries.js"
 import { tryOnPrompt } from "../src/tryon.js"
+import { studioPrompt } from "../src/studio.js"
 
 const look = {
   occasion: "Office",
@@ -54,4 +55,31 @@ it("draws with the free provider and reports failures", async () => {
   const off = createImageAI({ replicateImageModel: "", replicateBgModel: "", freeImages: "none", pollinationsUrl: "" })
   expect(off.enabled).toBe(false)
   expect(await off.generate({ prompt: "x" })).toBeNull()
+})
+
+it("asks for catalogue-style studio photos that match the samples", () => {
+  const base = { name: "Light blue wash jeans", color: "Light blue", material: "Denim", pattern: "Solid", subcategory: "Straight jeans" }
+  expect(studioPrompt({ ...base, category: "Bottoms" })).toMatch(/^Product photo of Light blue Denim Straight jeans .*folded over a wooden trouser hanger/)
+  expect(studioPrompt({ ...base, category: "Tops" })).toMatch(/^Ghost mannequin product photo/)
+  expect(studioPrompt({ ...base, category: "Dresses" })).toContain("dress form mannequin")
+  expect(studioPrompt({ ...base, pattern: "Floral", category: "Tops" })).toContain("floral Straight jeans")
+})
+
+it("draws on Cloudflare Workers AI's free plan", async () => {
+  const calls: { url: string; body: string; auth: string }[] = []
+  const cf = createImageAI({
+    replicateImageModel: "",
+    replicateBgModel: "",
+    freeImages: "none",
+    pollinationsUrl: "",
+    cloudflare: { accountId: "acc", token: "tok", model: "@cf/black-forest-labs/flux-1-schnell" },
+    fetch: (async (url: string, init: RequestInit) => {
+      calls.push({ url, body: String(init.body), auth: (init.headers as Record<string, string>).Authorization })
+      return Response.json({ success: true, result: { image: Buffer.from([7, 8]).toString("base64") } })
+    }) as typeof fetch,
+  })
+  expect(await cf.generate({ prompt: "a shirt" })).toEqual({ bytes: new Uint8Array([7, 8]), contentType: "image/jpeg" })
+  expect(calls[0].url).toBe("https://api.cloudflare.com/client/v4/accounts/acc/ai/run/@cf/black-forest-labs/flux-1-schnell")
+  expect(calls[0].auth).toBe("Bearer tok")
+  expect(JSON.parse(calls[0].body)).toMatchObject({ prompt: "a shirt", steps: 8 })
 })

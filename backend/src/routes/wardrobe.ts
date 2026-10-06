@@ -7,6 +7,7 @@ import type { AuthEnv } from "../auth.js"
 import type { Deps } from "../deps.js"
 import { HttpError, parseBody, parseQuery, readImageUpload, idParam } from "../http.js"
 import { itemsToApi, wardrobeItems, type ItemRow } from "../queries.js"
+import { ensureStudioPhotos } from "../studio.js"
 
 const SUMMARY_LABELS = ["Tops", "Outerwear", "Bottoms", "Shoes & more"]
 
@@ -54,6 +55,7 @@ export function wardrobeRoutes(deps: Deps) {
     const q = parseQuery(c, z.object({ category: z.union([z.enum(CATEGORIES), z.literal("All items")]).optional() }))
     const category = q.category === "All items" ? undefined : q.category
     const rows = await db.asUser(user.id, user.claims, (tx) => wardrobeItems(tx, user.id, category))
+    ensureStudioPhotos(deps, user.id, rows)
     return c.json(await itemsToApi(storage, rows))
   })
 
@@ -180,6 +182,7 @@ export function wardrobeRoutes(deps: Deps) {
         returning id`
       return tx<ItemRow[]>`select * from wardrobe_items_view where id = ${row.id}`
     })
+    ensureStudioPhotos(deps, user.id, rows)
     return c.json((await itemsToApi(storage, rows))[0], 201)
   })
 

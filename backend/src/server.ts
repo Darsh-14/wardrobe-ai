@@ -52,6 +52,9 @@ const deps: Deps = {
     replicateBgModel: config.REPLICATE_BG_REMOVAL_MODEL,
     geminiKey: config.GEMINI_API_KEY,
     geminiImageModel: config.GEMINI_IMAGE_MODEL,
+    cloudflare: config.CLOUDFLARE_ACCOUNT_ID && config.CLOUDFLARE_API_TOKEN
+      ? { accountId: config.CLOUDFLARE_ACCOUNT_ID, token: config.CLOUDFLARE_API_TOKEN, model: config.CLOUDFLARE_IMAGE_MODEL }
+      : undefined,
     freeImages: config.FREE_IMAGES,
     pollinationsUrl: config.POLLINATIONS_URL,
   }),

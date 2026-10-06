@@ -149,7 +149,7 @@ export type Look = Omit<GeneratedLook, "tempC" | "items"> & {
   location?: string | null;
   weather?: { tempC: number; condition: string } | null;
   hasPicture?: boolean;
-  items: (GeneratedLook["items"][number] & { category?: string; photo?: "cutout" | "original" | null })[];
+  items: (GeneratedLook["items"][number] & { category?: string; photo?: "cutout" | "original" | null; studioUrl?: string | null })[];
 };
 export type Rec = Recommendation & { id: string; productName: string };
 export type TodaysPick = { id: string; title: string; imageUrl: string } | null;

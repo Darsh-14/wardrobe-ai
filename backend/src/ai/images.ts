@@ -5,8 +5,10 @@
 //     pieces and can use the face photo. Only free if Google offers a free quota for that model on
 //     your key; a key with no billing account is never charged.
 //  2. Replicate (REPLICATE_API_TOKEN): PAID, off unless a token is set.
-//  3. Pollinations (FREE_IMAGES=pollinations, default): free text-to-image, no key. It draws a
-//     person matching the description, not the exact pieces or face.
+//  3. Cloudflare Workers AI (CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN): FLUX.1 schnell on the
+//     free plan, no card, about 200 images a day; when the day's quota is used up it errors, it
+//     never bills. Draws from the description, so not the exact pieces or face.
+//  4. Pollinations (FREE_IMAGES=pollinations): keyless, but now asks for payment after one image.
 // Background removal for wardrobe photos runs in the browser (frontend/src/lib/cutout.ts); the
 // Replicate remover here is only used when a token is set.
 import { GoogleGenAI, type Part } from "@google/genai"
@@ -20,6 +22,7 @@ export type ImageOptions = {
   replicateBgModel: string
   geminiKey?: string
   geminiImageModel?: string
+  cloudflare?: { accountId: string; token: string; model: string }
   freeImages: "pollinations" | "none"
   pollinationsUrl: string
   fetch?: typeof fetch
@@ -37,6 +40,7 @@ export function createImageAI(opts: ImageOptions): ImageAI {
         replicate(opts.replicateImageModel, { prompt: req.prompt, aspect_ratio: "3:4", output_format: "webp" }),
     })
   }
+  if (opts.cloudflare) providers.push(cloudflare(opts.cloudflare, http))
   if (opts.freeImages === "pollinations") providers.push(pollinations(opts.pollinationsUrl, http))
 
   return {
@@ -78,6 +82,31 @@ function gemini(apiKey: string, model: string): Provider {
       const img = res.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData
       if (!img?.data) throw new Error(`no image returned (${res.candidates?.[0]?.finishReason ?? "blocked"})`)
       return { bytes: Buffer.from(img.data, "base64"), contentType: img.mimeType ?? "image/png" }
+    },
+  }
+}
+
+function cloudflare(cf: { accountId: string; token: string; model: string }, http: typeof fetch): Provider {
+  let queue: Promise<unknown> = Promise.resolve()
+  const once = async (prompt: string) => {
+    const res = await http(`https://api.cloudflare.com/client/v4/accounts/${cf.accountId}/ai/run/${cf.model}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cf.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt.slice(0, 2000), steps: 8, seed: Math.floor(Math.random() * 1e9) }),
+      signal: AbortSignal.timeout(90_000),
+    })
+    const body = (await res.json().catch(() => null)) as { result?: { image?: string }; errors?: { message?: string }[] } | null
+    const image = body?.result?.image
+    if (!res.ok || !image) throw new Error(`HTTP ${res.status} ${body?.errors?.map((e) => e.message).join("; ") ?? ""}`)
+    return { bytes: new Uint8Array(Buffer.from(image, "base64")), contentType: "image/jpeg" }
+  }
+  return {
+    name: "cloudflare",
+    // one at a time keeps a burst (a new wardrobe) inside the free plan's rate limit
+    generate(req) {
+      const run = queue.then(() => once(req.prompt))
+      queue = run.catch(() => undefined)
+      return run
     },
   }
 }

@@ -1,6 +1,6 @@
-// Profile > Body & fit profile: the shape of the model that wears your looks, plus an optional face photo.
-import { useState, type ChangeEvent, type ReactNode } from "react";
-import { api, shrinkPhoto, type BodyProfile, type Me } from "./lib/api";
+// Profile > Body & fit profile: the shape of the model in your looks' AI photos.
+import { useState, type ReactNode } from "react";
+import { api, type BodyProfile, type Me } from "./lib/api";
 
 const BUILDS = ["Slim", "Athletic", "Average", "Curvy", "Plus size"];
 const SKIN = [["Fair", "#f1d3bd"], ["Wheatish", "#ddb08a"], ["Medium", "#c48f66"], ["Dusky", "#9c6a45"], ["Deep", "#6e4a32"]] as const;
@@ -29,12 +29,6 @@ export default function BodyProfileSheet({ me, onSaved, onClose }: { me?: Me; on
     onSaved(await api.updateMe({ bodyProfile: rest }));
     onClose();
   });
-  const pickFace = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (file) run(async () => { const next = await api.uploadFace(await shrinkPhoto(file, 800)); onSaved(next); set({ faceUrl: next.bodyProfile?.faceUrl }); });
-  };
-  const removeFace = () => run(async () => { const next = await api.deleteFace(); onSaved(next); set({ faceUrl: null }); });
 
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-label="Body and fit profile" onClick={onClose}>
     <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-[32px] bg-[#f8f7f2] p-6 pb-10 sm:rounded-[32px] sm:p-8" onClick={(e) => e.stopPropagation()}>
@@ -47,17 +41,6 @@ export default function BodyProfileSheet({ me, onSaved, onClose }: { me?: Me; on
       </div>
       <Field label="Body type"><div className="flex flex-wrap gap-2">{BUILDS.map((b) => <button key={b} onClick={() => set({ build: b })} aria-pressed={body.build === b} className={chip(body.build === b)}>{b}</button>)}</div></Field>
       <Field label="Skin tone"><div className="flex flex-wrap gap-2">{SKIN.map(([name, color]) => <button key={name} onClick={() => set({ skinTone: name })} aria-pressed={body.skinTone === name} className={`${chip(body.skinTone === name)} flex items-center gap-2`}><span className="h-4 w-4 rounded-full ring-1 ring-black/10" style={{ background: color }} />{name}</button>)}</div></Field>
-
-      <Field label="Face photo (optional)">
-        <div className="flex items-center gap-4 rounded-[22px] bg-white p-4">
-          {body.faceUrl ? <img src={body.faceUrl} alt="Your face photo" className="h-16 w-16 rounded-full object-cover" /> : <span className="grid h-16 w-16 place-items-center rounded-full bg-[#f1f0eb] text-2xl text-[#9aa094]">☺</span>}
-          <div className="flex-1 text-[11px] leading-4 text-[#737a70]">A clear, front-facing photo. It's kept private and only used for your try-on model. Remove it any time.</div>
-        </div>
-        <div className="mt-3 flex gap-2">
-          <label className={`${chip(false)} cursor-pointer ${busy ? "pointer-events-none opacity-50" : ""}`}><input type="file" accept="image/*" onChange={pickFace} className="sr-only" aria-label="Upload a face photo" />{body.faceUrl ? "Change photo" : "Add photo"}</label>
-          {body.faceUrl && <button onClick={removeFace} className={`${chip(false)} ${busy ? "pointer-events-none opacity-50" : ""}`}>Remove</button>}
-        </div>
-      </Field>
 
       {error && <div className="mt-5 rounded-2xl bg-[#fde8e2] px-4 py-3 text-xs text-[#9a3412]">{error}</div>}
       <button onClick={save} className={`mt-7 w-full rounded-full bg-[#20251f] px-5 py-4 text-sm font-semibold text-white ${busy ? "pointer-events-none opacity-50" : ""}`}>{busy ? "Saving..." : "Save"}</button>

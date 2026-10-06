@@ -15,6 +15,7 @@ export type ItemRow = {
   season: string
   image_path: string
   cutout_path: string | null
+  ai_attributes?: { studio_path?: string; box?: unknown } | null
   favorite: boolean
   wear_count: number
   worn_often?: boolean
@@ -30,8 +31,10 @@ export async function wardrobeItems(tx: Tx, userId: string, category?: string) {
     order by created_at desc, name`
 }
 
+export const studioPath = (i: Pick<ItemRow, "ai_attributes">) => i.ai_attributes?.studio_path ?? null
+
 export async function itemsToApi(storage: Storage, rows: ItemRow[]) {
-  const urls = await storage.urls("wardrobe", rows.map(itemImage))
+  const urls = await storage.urls("wardrobe", [...rows.map(itemImage), ...rows.map(studioPath)])
   return rows.map((i) => ({
     id: i.id,
     name: i.name,
@@ -41,6 +44,8 @@ export async function itemsToApi(storage: Storage, rows: ItemRow[]) {
     imageUrl: urls.get(itemImage(i)) ?? "",
     // "cutout": transparent PNG; "original": the photo as taken (kept on purpose); null: not cleaned up yet
     photo: !i.cutout_path ? null : i.cutout_path === i.image_path ? "original" : "cutout",
+    // catalogue-style picture of the item (studio.ts); null until it's made or when images are off
+    studioUrl: (studioPath(i) && urls.get(studioPath(i)!)) || null,
     wornOften: !!i.worn_often,
     // extras the Add/Edit screens can use
     subcategory: i.subcategory,
@@ -129,7 +134,7 @@ export async function lookToApi(tx: Tx, storage: Storage, look: LookRow) {
     select wi.*, li.position from look_items li
     join wardrobe_items wi on wi.id = li.wardrobe_item_id
     where li.look_id = ${look.id} order by li.position`
-  const itemUrls = await storage.urls("wardrobe", items.map(itemImage))
+  const itemUrls = await storage.urls("wardrobe", [...items.map(itemImage), ...items.map(studioPath)])
   const vizUrls = await storage.urls("looks", [look.visualization_path])
   const firstItemImage = items[0] ? itemUrls.get(itemImage(items[0])) : undefined
   return {
@@ -151,6 +156,7 @@ export async function lookToApi(tx: Tx, storage: Storage, look: LookRow) {
       // for the web app's model view, which layers the cutouts by category
       category: i.category,
       photo: !i.cutout_path ? null : i.cutout_path === i.image_path ? "original" : "cutout",
+      studioUrl: (studioPath(i) && itemUrls.get(studioPath(i)!)) || null,
     })),
     // extras
     status: look.status,

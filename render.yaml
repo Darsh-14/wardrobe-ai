@@ -24,6 +24,11 @@ services:
       # https://aistudio.google.com/apikey (free)
       - key: GEMINI_API_KEY
         sync: false
+      # Cloudflare > AI > Workers AI > Use REST API (free plan, no card): studio photos and try-on pictures
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
       - key: AI_PROVIDER
         value: gemini
       - key: STORAGE_DRIVER

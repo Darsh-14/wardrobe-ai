@@ -191,6 +191,28 @@ describe("wardrobe", () => {
     await call(MAYA, "DELETE", `/api/wardrobe/items/${added.body.id}`)
   })
 
+  it("makes a studio photo for each item when pictures are on", async () => {
+    const prompts: string[] = []
+    const before = deps.images
+    deps.images = {
+      enabled: true,
+      generate: async (req) => { prompts.push(req.prompt); return { bytes: new Uint8Array([255, 216]), contentType: "image/jpeg" } },
+      removeBackground: async () => null,
+    }
+    try {
+      const first = (await call(MAYA, "GET", "/api/wardrobe/items?category=Bottoms")).body
+      expect(first[0].studioUrl).toBeNull()
+      await deps.jobs.idle()
+      expect(prompts[0]).toMatch(/trouser hanger/)
+      const again = (await call(MAYA, "GET", "/api/wardrobe/items?category=Bottoms")).body
+      expect(again[0].studioUrl).toMatch(/-studio-\d+\.jpg$/)
+      await deps.jobs.idle()
+      expect(prompts).toHaveLength(first.length) // not made twice
+    } finally {
+      deps.images = before
+    }
+  })
+
   it("rejects non-image uploads", async () => {
     const form = new FormData()
     form.append("file", new File(["hi"], "a.txt", { type: "text/plain" }))

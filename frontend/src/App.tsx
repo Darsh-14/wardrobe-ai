@@ -365,9 +365,9 @@ function GeneratedLook({ look, setLook, occasion, retry }: { look: Look; setLook
       <section className="relative min-h-[720px] overflow-hidden rounded-[32px] bg-[#ded8cc]">
         {view==="photo" && look.hasPicture
           ? <img src={generatedLook.visualizationUrl || photos.hero} alt="AI visualization of you wearing the selected outfit" className="absolute inset-0 h-full w-full object-cover object-top"/>
-          : <ModelView look={look} body={me?.bodyProfile} timeOfDay={look.timeOfDay}/>}
+          : <ModelView look={look} timeOfDay={look.timeOfDay}/>}
         <div className="absolute left-4 top-4 z-10 flex gap-1 rounded-full bg-white/85 p-1 text-[11px] font-semibold backdrop-blur sm:left-6 sm:top-6">
-          {(["photo","model"] as const).map(v=><button key={v} onClick={()=>setView(v)} aria-pressed={view===v} className={`rounded-full px-3 py-1.5 ${view===v?"bg-[#20251f] text-white":""}`}>{v==="photo" ? (look.hasPicture ? "AI photo" : look.visualizationStatus==="pending" ? "AI photo · making..." : "AI photo · unavailable") : "Your pieces"}</button>)}
+          {(["photo","model"] as const).map(v=><button key={v} onClick={()=>setView(v)} aria-pressed={view===v} className={`rounded-full px-3 py-1.5 ${view===v?"bg-[#20251f] text-white":""}`}>{v==="photo" ? (look.hasPicture ? "AI photo" : look.visualizationStatus==="pending" ? "AI photo · making..." : "AI photo · unavailable") : "Outfit board"}</button>)}
         </div>
         {!me?.bodyProfile?.heightCm && <button onClick={()=>setBodyOpen(true)} className="absolute right-4 top-4 z-10 rounded-full bg-[#d8ff60] px-3 py-2 text-[11px] font-bold sm:right-6 sm:top-6">Add your body type</button>}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-6 pt-32 text-white sm:p-8">
@@ -381,7 +381,7 @@ function GeneratedLook({ look, setLook, occasion, retry }: { look: Look; setLook
         <section className="rounded-[28px] bg-white p-5 sm:p-6">
           <div className="mb-4 flex items-center justify-between"><div className="font-serif text-2xl">The pieces</div><button className="text-xs font-semibold underline underline-offset-4" onClick={()=>setChanged(0)}>Change item</button></div>
           <div className="space-y-3">{generatedLook.items.map((item,i)=><div key={item.wardrobeItemId} className={`group flex items-center gap-3 rounded-[18px] border p-2.5 transition ${changed===i?"border-[#95ad48] bg-[#f5f9e9]":"border-[#ecece7]"}`}>
-            <img src={item.imageUrl} alt="" className="h-16 w-14 rounded-xl object-cover"/>
+            <img src={item.studioUrl || item.imageUrl} alt="" className="h-16 w-14 rounded-xl bg-[#e2e8ea] object-cover"/>
             <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{item.name}</div><div className="mt-1 text-[10px] text-[#737a70]">{item.meta}</div><div className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-[#62732f]"><Icon name="check" size={11}/> From your wardrobe</div></div>
             <button onClick={()=>setChanged(changed===i?null:i)} aria-label={`Replace ${item.name}`} className="grid h-8 w-8 place-items-center rounded-full bg-[#f3f2ed] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100"><Icon name="swap" size={14}/></button>
           </div>)}</div>
@@ -414,7 +414,7 @@ function Wardrobe({ go }: { go: (s: Screen)=>void }) {
     {progress && <div className="mt-6 flex items-center gap-3 rounded-[20px] bg-[#20251f] px-5 py-3.5 text-xs text-white"><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#d8ff60] border-t-transparent"/><span className="flex-1">{`Giving your photos a clean background · ${progress.done} of ${progress.total}`}</span><span className="hidden text-white/50 sm:inline">The first one takes longer while the AI model downloads.</span></div>}
     {items.error && <div className="mt-8"><ErrorNote>{items.error.message}</ErrorNote></div>}
     {!items.loading && !items.error && !wardrobeItems.length && <button onClick={()=>go("add")} className="mt-8 flex w-full flex-col items-center rounded-[30px] border-2 border-dashed border-[#cbd0c7] bg-white p-12 text-center"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#eef5d4]"><Icon name="camera" size={22}/></span><span className="mt-4 font-serif text-2xl">{category === "All items" ? "Your wardrobe is empty." : `No ${category.toLowerCase()} yet.`}</span><span className="mt-1 text-xs text-[#737a70]">Add a photo of something you own and AI will tag it.</span></button>}
-    <div className="mt-8 space-y-6">{racks.map(([c, list]) => <Rack key={c} category={c} items={list} wrap={category !== "All items"} onFavorite={toggleFavorite} cleaning={cleaning}/>)}</div>
+    <div className="mt-10 space-y-12">{racks.map(([c, list]) => <Rack key={c} category={c} items={list} wrap={category !== "All items"} onFavorite={toggleFavorite} cleaning={cleaning}/>)}</div>
   </main>;
 }
 

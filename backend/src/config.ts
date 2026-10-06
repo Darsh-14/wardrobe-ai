@@ -43,8 +43,14 @@ const Env = z.object({
   REPLICATE_IMAGE_MODEL: z.string().default("black-forest-labs/flux-schnell"),
   REPLICATE_BG_REMOVAL_MODEL: z.string().default("851-labs/background-remover"),
 
-  // Free pictures for looks, recommendations and trends: "pollinations" (free, no key) or "none"
-  FREE_IMAGES: z.enum(["pollinations", "none"]).default("pollinations"),
+  // Free pictures (studio photos of each item, "see it on you", recommendations, trends) through
+  // Cloudflare Workers AI: free account, no card, about 200 images a day. Dashboard > AI > Workers AI
+  // > "Use REST API" gives the account id and a token. Without them items show the cleaned-up photo.
+  CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
+  CLOUDFLARE_API_TOKEN: z.string().optional(),
+  CLOUDFLARE_IMAGE_MODEL: z.string().default("@cf/black-forest-labs/flux-1-schnell"),
+  // Pollinations' keyless endpoint now asks for payment after one image, so it is off by default
+  FREE_IMAGES: z.enum(["pollinations", "none"]).default("none"),
   POLLINATIONS_URL: z.string().default("https://image.pollinations.ai/prompt/"),
   // Optional Gemini image model for try-ons with the actual pieces and face photo, e.g.
   // gemini-2.5-flash-image. Off by default: only set it if Google gives your key a free quota for it.
