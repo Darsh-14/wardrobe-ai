@@ -2,7 +2,7 @@ import { expect, it } from "vitest"
 import { createImageAI } from "../src/ai/images.js"
 import type { ItemRow, LookRow } from "../src/queries.js"
 import { tryOnPrompt } from "../src/tryon.js"
-import { studioPrompt } from "../src/studio.js"
+import { studioEditPrompt, studioPrompt } from "../src/studio.js"
 
 const look = {
   occasion: "Office",
@@ -72,7 +72,7 @@ it("draws on Cloudflare Workers AI's free plan", async () => {
     replicateBgModel: "",
     freeImages: "none",
     pollinationsUrl: "",
-    cloudflare: { accountId: "acc", token: "tok", model: "@cf/black-forest-labs/flux-1-schnell" },
+    cloudflare: { accountId: "acc", token: "tok", model: "@cf/black-forest-labs/flux-1-schnell", editModel: "@cf/black-forest-labs/flux-2-klein-4b" },
     fetch: (async (url: string, init: RequestInit) => {
       calls.push({ url, body: String(init.body), auth: (init.headers as Record<string, string>).Authorization })
       return Response.json({ success: true, result: { image: Buffer.from([7, 8]).toString("base64") } })
@@ -82,4 +82,41 @@ it("draws on Cloudflare Workers AI's free plan", async () => {
   expect(calls[0].url).toBe("https://api.cloudflare.com/client/v4/accounts/acc/ai/run/@cf/black-forest-labs/flux-1-schnell")
   expect(calls[0].auth).toBe("Bearer tok")
   expect(JSON.parse(calls[0].body)).toMatchObject({ prompt: "a shirt", steps: 8 })
+})
+
+it("edits from the user's own photos with FLUX.2 klein", async () => {
+  const forms: { url: string; form: FormData }[] = []
+  const cf = createImageAI({
+    replicateImageModel: "",
+    replicateBgModel: "",
+    freeImages: "none",
+    pollinationsUrl: "",
+    cloudflare: { accountId: "acc", token: "tok", model: "m1", editModel: "@cf/black-forest-labs/flux-2-klein-4b" },
+    fetch: (async (url: string, init: RequestInit) => {
+      forms.push({ url, form: init.body as FormData })
+      return Response.json({ result: { image: Buffer.from([0x89, 1]).toString("base64") } })
+    }) as typeof fetch,
+  })
+  expect(cf.usesReferences).toBe(true)
+  const jeans = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
+  const studio = await cf.generate({ prompt: "Image 0 is a phone photo of the user's jeans.", garments: [jeans], mode: "studio", width: 832, height: 1040 })
+  expect(studio?.contentType).toBe("image/png")
+  expect(forms[0].url).toMatch(/flux-2-klein-4b$/)
+  expect(forms[0].form.get("prompt")).toBe("Image 0 is a phone photo of the user's jeans.")
+  expect(forms[0].form.get("input_image_0")).toBeInstanceOf(Blob)
+  expect(forms[0].form.get("width")).toBe("832")
+
+  const face = { bytes: new Uint8Array([2]), contentType: "image/png" }
+  await cf.generate({ prompt: "A man at the office.", garments: [jeans, jeans], face })
+  expect(forms[1].form.get("prompt")).toBe(
+    "A man at the office. Images 0 to 1 are the user's own clothes: dress the person in exactly these pieces, keeping their colours, wash, prints, details and cut. Image 2 is the person's face: the person must look like them.",
+  )
+  expect((forms[1].form.get("input_image_2") as Blob).type).toBe("image/png")
+})
+
+it("asks to keep the same garment and fill in hidden parts", () => {
+  const p = studioEditPrompt({ name: "Light blue wash jeans", category: "Bottoms", color: "Light blue", material: "Denim", pattern: "Solid", subcategory: "Straight jeans" })
+  expect(p).toContain("Image 0 is a phone photo of the user's Light blue wash jeans.")
+  expect(p).toContain("wooden trouser hanger")
+  expect(p).toContain("complete it so it matches the visible part")
 })

@@ -49,6 +49,8 @@ const Env = z.object({
   CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
   CLOUDFLARE_API_TOKEN: z.string().optional(),
   CLOUDFLARE_IMAGE_MODEL: z.string().default("@cf/black-forest-labs/flux-1-schnell"),
+  // edits from reference photos (the user's own clothes and face)
+  CLOUDFLARE_EDIT_MODEL: z.string().default("@cf/black-forest-labs/flux-2-klein-4b"),
   // Pollinations' keyless endpoint now asks for payment after one image, so it is off by default
   FREE_IMAGES: z.enum(["pollinations", "none"]).default("none"),
   POLLINATIONS_URL: z.string().default("https://image.pollinations.ai/prompt/"),

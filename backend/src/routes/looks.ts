@@ -9,6 +9,7 @@ import {
   itemsForAI,
   itemImage,
   itemsToApi,
+  studioPath,
   lookToApi,
   profile,
   profileForAI,
@@ -279,7 +280,8 @@ function queueVisualization(deps: Deps, userId: string, lookId: string, scene?: 
       const fetchRefs = deps.images.usesReferences
       const [garments, face] = fetchRefs
         ? await Promise.all([
-            Promise.all(ctx.items.map((i) => deps.storage.download("wardrobe", itemImage(i)))),
+            // the studio photo shows the whole garment cleanly; otherwise the cleaned-up or original photo
+            Promise.all(ctx.items.map((i) => deps.storage.download("wardrobe", studioPath(i) ?? itemImage(i)))),
             ctx.body.facePath ? deps.storage.download("avatars", ctx.body.facePath).catch(() => null) : null,
           ])
         : [undefined, null]

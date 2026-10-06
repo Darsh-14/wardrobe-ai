@@ -5,9 +5,10 @@
 //     pieces and can use the face photo. Only free if Google offers a free quota for that model on
 //     your key; a key with no billing account is never charged.
 //  2. Replicate (REPLICATE_API_TOKEN): PAID, off unless a token is set.
-//  3. Cloudflare Workers AI (CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN): FLUX.1 schnell on the
-//     free plan, no card, about 200 images a day; when the day's quota is used up it errors, it
-//     never bills. Draws from the description, so not the exact pieces or face.
+//  3. Cloudflare Workers AI (CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN), free plan, no card,
+//     10,000 neurons a day (a few hundred pictures); when they're used up it errors, it never bills.
+//     With reference photos (the user's clothes, face) it uses FLUX.2 klein, which edits from them,
+//     so pictures show the actual garment; text-only prompts use FLUX.1 schnell.
 //  4. Pollinations (FREE_IMAGES=pollinations): keyless, but now asks for payment after one image.
 // Background removal for wardrobe photos runs in the browser (frontend/src/lib/cutout.ts); the
 // Replicate remover here is only used when a token is set.
@@ -22,7 +23,7 @@ export type ImageOptions = {
   replicateBgModel: string
   geminiKey?: string
   geminiImageModel?: string
-  cloudflare?: { accountId: string; token: string; model: string }
+  cloudflare?: { accountId: string; token: string; model: string; editModel: string }
   freeImages: "pollinations" | "none"
   pollinationsUrl: string
   fetch?: typeof fetch
@@ -45,7 +46,7 @@ export function createImageAI(opts: ImageOptions): ImageAI {
 
   return {
     enabled: providers.length > 0,
-    usesReferences: !!(opts.geminiKey && opts.geminiImageModel),
+    usesReferences: !!((opts.geminiKey && opts.geminiImageModel) || opts.cloudflare),
     async generate(req) {
       for (const p of providers) {
         try {
@@ -69,11 +70,7 @@ function gemini(apiKey: string, model: string): Provider {
       const parts: Part[] = []
       for (const g of req.garments ?? []) parts.push({ inlineData: { data: base64(g.bytes), mimeType: g.contentType } })
       if (req.face) parts.push({ inlineData: { data: base64(req.face.bytes), mimeType: req.face.contentType } })
-      const refs = [
-        req.garments?.length ? `The first ${req.garments.length} images are the clothes to dress the person in; keep their exact colours, prints and cut.` : "",
-        req.face ? "The last image is the person's face: the person should look like them." : "",
-      ].join(" ")
-      parts.push({ text: `${req.prompt} ${refs}`.trim() })
+      parts.push({ text: `${req.prompt} ${referenceNote(req)}`.trim() })
       const res = await client.models.generateContent({
         model,
         contents: [{ role: "user", parts }],
@@ -86,25 +83,49 @@ function gemini(apiKey: string, model: string): Provider {
   }
 }
 
-function cloudflare(cf: { accountId: string; token: string; model: string }, http: typeof fetch): Provider {
+/** Tells an image model what each reference photo is (images numbered from 0) */
+export function referenceNote(req: TryOnRequest) {
+  if (req.mode === "studio") return ""
+  const n = req.garments?.length ?? 0
+  return [
+    n ? `${n === 1 ? "Image 0 is" : `Images 0 to ${n - 1} are`} the user's own clothes: dress the person in exactly these pieces, keeping their colours, wash, prints, details and cut.` : "",
+    req.face ? `Image ${n} is the person's face: the person must look like them.` : "",
+  ].join(" ").trim()
+}
+
+function cloudflare(cf: { accountId: string; token: string; model: string; editModel: string }, http: typeof fetch): Provider {
   let queue: Promise<unknown> = Promise.resolve()
-  const once = async (prompt: string) => {
-    const res = await http(`https://api.cloudflare.com/client/v4/accounts/${cf.accountId}/ai/run/${cf.model}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${cf.token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: prompt.slice(0, 2000), steps: 8, seed: Math.floor(Math.random() * 1e9) }),
-      signal: AbortSignal.timeout(90_000),
-    })
+  const url = (model: string) => `https://api.cloudflare.com/client/v4/accounts/${cf.accountId}/ai/run/${model}`
+  const once = async (req: TryOnRequest) => {
+    // FLUX.2 klein takes up to 4 reference photos; the face goes last
+    const refs = [...(req.garments ?? []).slice(0, req.face ? 3 : 4), ...(req.face ? [req.face] : [])]
+    let res: Response
+    if (refs.length) {
+      const form = new FormData()
+      form.append("prompt", `${req.prompt} ${referenceNote({ ...req, garments: refs.slice(0, req.face ? -1 : undefined) })}`.trim().slice(0, 2000))
+      refs.forEach((r, i) => form.append(`input_image_${i}`, new Blob([r.bytes as Uint8Array<ArrayBuffer>], { type: r.contentType }), `ref${i}`))
+      form.append("width", String(req.width ?? 768))
+      form.append("height", String(req.height ?? 1024))
+      res = await http(url(cf.editModel), { method: "POST", headers: { Authorization: `Bearer ${cf.token}` }, body: form, signal: AbortSignal.timeout(120_000) })
+    } else {
+      res = await http(url(cf.model), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${cf.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: req.prompt.slice(0, 2000), steps: 8, seed: Math.floor(Math.random() * 1e9) }),
+        signal: AbortSignal.timeout(90_000),
+      })
+    }
     const body = (await res.json().catch(() => null)) as { result?: { image?: string }; errors?: { message?: string }[] } | null
     const image = body?.result?.image
     if (!res.ok || !image) throw new Error(`HTTP ${res.status} ${body?.errors?.map((e) => e.message).join("; ") ?? ""}`)
-    return { bytes: new Uint8Array(Buffer.from(image, "base64")), contentType: "image/jpeg" }
+    const bytes = new Uint8Array(Buffer.from(image, "base64"))
+    return { bytes, contentType: bytes[0] === 0x89 ? "image/png" : "image/jpeg" }
   }
   return {
     name: "cloudflare",
     // one at a time keeps a burst (a new wardrobe) inside the free plan's rate limit
     generate(req) {
-      const run = queue.then(() => once(req.prompt))
+      const run = queue.then(() => once(req))
       queue = run.catch(() => undefined)
       return run
     },

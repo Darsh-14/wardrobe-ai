@@ -405,6 +405,21 @@ function Wardrobe({ go }: { go: (s: Screen)=>void }) {
     items.setData(wardrobeItems.map((i) => (i.id === id ? { ...i, favorite } : i)));
     api.setFavorite(id, favorite).catch(() => items.reload());
   };
+  // studio photos are made in the background: check back a couple of times while some are missing
+  const missingStudio = wardrobeItems.some((i) => !i.studioUrl);
+  const checks = useRef(0);
+  useEffect(() => {
+    if (!missingStudio || items.loading || checks.current >= 3) return;
+    const t = window.setTimeout(() => { checks.current++; void items.reload(); }, 30000);
+    return () => window.clearTimeout(t);
+  }, [missingStudio, items.loading, items.data]);
+  // a new studio photo takes a little while; the list is fetched again to pick it up
+  const redoStudio = (id: string) => {
+    api.redoStudio(id).then((updated) => {
+      items.setData((list) => (list ?? []).map((i) => (i.id === id ? { ...i, ...updated } : i)));
+      window.setTimeout(() => void items.reload(), 25000);
+    }).catch(() => undefined);
+  };
   const { cleaning, progress } = useBackgroundCleanup(wardrobeItems, (updated) =>
     items.setData((list) => (list ?? []).map((i) => (i.id === updated.id ? { ...i, ...updated } : i))));
   const racks = RACK_ORDER.map((c) => [c, wardrobeItems.filter((i) => i.category === c)] as const).filter(([, list]) => list.length);
@@ -414,7 +429,7 @@ function Wardrobe({ go }: { go: (s: Screen)=>void }) {
     {progress && <div className="mt-6 flex items-center gap-3 rounded-[20px] bg-[#20251f] px-5 py-3.5 text-xs text-white"><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#d8ff60] border-t-transparent"/><span className="flex-1">{`Giving your photos a clean background · ${progress.done} of ${progress.total}`}</span><span className="hidden text-white/50 sm:inline">The first one takes longer while the AI model downloads.</span></div>}
     {items.error && <div className="mt-8"><ErrorNote>{items.error.message}</ErrorNote></div>}
     {!items.loading && !items.error && !wardrobeItems.length && <button onClick={()=>go("add")} className="mt-8 flex w-full flex-col items-center rounded-[30px] border-2 border-dashed border-[#cbd0c7] bg-white p-12 text-center"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#eef5d4]"><Icon name="camera" size={22}/></span><span className="mt-4 font-serif text-2xl">{category === "All items" ? "Your wardrobe is empty." : `No ${category.toLowerCase()} yet.`}</span><span className="mt-1 text-xs text-[#737a70]">Add a photo of something you own and AI will tag it.</span></button>}
-    <div className="mt-10 space-y-12">{racks.map(([c, list]) => <Rack key={c} category={c} items={list} wrap={category !== "All items"} onFavorite={toggleFavorite} cleaning={cleaning}/>)}</div>
+    <div className="mt-10 space-y-12">{racks.map(([c, list]) => <Rack key={c} category={c} items={list} wrap={category !== "All items"} onFavorite={toggleFavorite} onRedo={redoStudio} cleaning={cleaning}/>)}</div>
   </main>;
 }
 

@@ -131,6 +131,10 @@ export type TryOnRequest = {
   garments?: ImageBytes[]
   /** Optional face photo the person should resemble */
   face?: ImageBytes | null
+  /** "studio": redo the photo in `garments` as a catalogue shot (the prompt explains the image itself) */
+  mode?: "tryon" | "studio"
+  width?: number
+  height?: number
 }
 
 export interface ImageAI {

@@ -31,7 +31,7 @@ function Hanger({ kind }: { kind: Kind }) {
 // soft blue-grey studio backdrop, like a catalogue shot
 const STUDIO_BG = "bg-[radial-gradient(130%_100%_at_50%_10%,#f3f6f7_0%,#e2e8ea_55%,#cfd8db_100%)]";
 
-function Piece({ item, kind, onFavorite, cleaning }: { item: WardrobeItem; kind: Kind; onFavorite: (id: string, f: boolean) => void; cleaning: boolean }) {
+function Piece({ item, kind, onFavorite, onRedo, cleaning }: { item: WardrobeItem; kind: Kind; onFavorite: (id: string, f: boolean) => void; onRedo: (id: string) => void; cleaning: boolean }) {
   const { id, name, category, color, season, imageUrl, studioUrl, wornOften, favorite, photo } = item;
   // the studio photo by default; a tap on "My photo" shows the user's own picture
   const [own, setOwn] = useState(false);
@@ -49,6 +49,7 @@ function Piece({ item, kind, onFavorite, cleaning }: { item: WardrobeItem; kind:
       <div className="absolute inset-x-2.5 bottom-2.5 z-[2] flex items-center gap-1.5">
         {wornOften && <span className="rounded-full bg-[#d8ff60] px-3 py-1.5 text-[10px] font-bold">Worn often</span>}
         {studioUrl && <button onClick={() => setOwn(!own)} className="rounded-full bg-white/85 px-3 py-1.5 text-[10px] font-semibold opacity-100 backdrop-blur transition sm:opacity-0 sm:group-hover:opacity-100">{own ? "Studio photo" : "My photo"}</button>}
+        {studioUrl && !own && <button onClick={() => onRedo(id)} aria-label={`Make a new studio photo of ${name}`} className="rounded-full bg-white/85 px-3 py-1.5 text-[10px] font-semibold opacity-100 backdrop-blur transition sm:opacity-0 sm:group-hover:opacity-100">Redo</button>}
         {cleaning && <span className="rounded-full bg-white/90 px-3 py-1.5 text-[10px] font-semibold">Cleaning background...</span>}
       </div>
     </div>
@@ -56,12 +57,12 @@ function Piece({ item, kind, onFavorite, cleaning }: { item: WardrobeItem; kind:
   </div>;
 }
 
-export function Rack({ category, items, wrap, onFavorite, cleaning }: { category: Category; items: WardrobeItem[]; wrap: boolean; onFavorite: (id: string, f: boolean) => void; cleaning: Set<string> }) {
+export function Rack({ category, items, wrap, onFavorite, onRedo, cleaning }: { category: Category; items: WardrobeItem[]; wrap: boolean; onFavorite: (id: string, f: boolean) => void; onRedo: (id: string) => void; cleaning: Set<string> }) {
   const kind = kindOf(category);
   return <section>
     <div className="mb-4 flex items-baseline justify-between"><div className="font-serif text-2xl sm:text-3xl">{RACK_NAMES[category]}</div><div className="text-xs text-[#737a70]">{`${items.length} ${items.length === 1 ? "piece" : "pieces"}`}</div></div>
     <div className={`no-scrollbar flex gap-4 sm:gap-5 ${wrap ? "flex-wrap" : "-mx-5 overflow-x-auto px-5 pb-2 lg:mx-0 lg:px-0"}`}>
-      {items.map((item) => <Piece key={item.id} item={item} kind={kind} onFavorite={onFavorite} cleaning={cleaning.has(item.id)} />)}
+      {items.map((item) => <Piece key={item.id} item={item} kind={kind} onFavorite={onFavorite} onRedo={onRedo} cleaning={cleaning.has(item.id)} />)}
     </div>
   </section>;
 }

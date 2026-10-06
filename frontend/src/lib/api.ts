@@ -208,6 +208,8 @@ export const api = {
     const box = res.headers.get("X-Item-Box")?.split(",").map(Number) as Box | undefined;
     return { photo: await res.blob(), box: box?.length === 4 ? box : null };
   },
+  /** Makes a new studio photo from the item's original photo */
+  redoStudio: (id: string) => post<WardrobeItem>(`/wardrobe/items/${id}/studio`),
   setItemCutout(id: string, png: Blob | null) {
     if (!png) return post<WardrobeItem>(`/wardrobe/items/${id}/cutout?keep=original`);
     const form = new FormData();

@@ -166,6 +166,19 @@ export function wardrobeRoutes(deps: Deps) {
     return c.json((await itemsToApi(storage, rows))[0])
   })
 
+  // "Redo studio photo": drops the current one and makes a new one from the original photo
+  app.post("/items/:id/studio", async (c) => {
+    const user = c.get("user")
+    const id = idParam(c)
+    const rows = await db.asUser(user.id, user.claims, async (tx) => {
+      const updated = await tx`update wardrobe_items set ai_attributes = ai_attributes - 'studio_path' where id = ${id} returning id`
+      if (!updated.length) throw new HttpError(404, "Item not found")
+      return tx<ItemRow[]>`select * from wardrobe_items_view where id = ${id}`
+    })
+    ensureStudioPhotos(deps, user.id, rows, { retry: true })
+    return c.json((await itemsToApi(storage, rows))[0], 202)
+  })
+
   app.post("/items", async (c) => {
     const user = c.get("user")
     const body = await parseBody(c, NewItem)
