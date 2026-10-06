@@ -56,6 +56,7 @@ const deps: Deps = {
     cloudflare: config.CLOUDFLARE_ACCOUNT_ID && config.CLOUDFLARE_API_TOKEN
       ? { accountId: config.CLOUDFLARE_ACCOUNT_ID, token: config.CLOUDFLARE_API_TOKEN, model: config.CLOUDFLARE_IMAGE_MODEL, editModel: config.CLOUDFLARE_EDIT_MODEL, tryOnModel: config.CLOUDFLARE_TRYON_MODEL }
       : undefined,
+    deapi: config.DEAPI_API_KEY ? { token: config.DEAPI_API_KEY, model: config.DEAPI_EDIT_MODEL, use: config.DEAPI_USE } : undefined,
     freeImages: config.FREE_IMAGES,
     pollinationsUrl: config.POLLINATIONS_URL,
   }),

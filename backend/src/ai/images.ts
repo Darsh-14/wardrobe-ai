@@ -36,6 +36,7 @@ export type ImageOptions = {
   /** "tryons": the Gemini image model only draws "see it on you" pictures; "all": every picture */
   geminiImageUse?: "tryons" | "all"
   cloudflare?: CloudflareOptions
+  deapi?: DeapiOptions
   freeImages: "pollinations" | "none"
   pollinationsUrl: string
   fetch?: typeof fetch
@@ -53,12 +54,14 @@ export function createImageAI(opts: ImageOptions): ImageAI {
         replicate(opts.replicateImageModel, { prompt: req.prompt, aspect_ratio: "3:4", output_format: "webp" }),
     })
   }
+  // before Cloudflare: same FLUX.2 klein model, but it takes the reference photos at full detail
+  if (opts.deapi) providers.push(deapi(opts.deapi, http))
   if (opts.cloudflare) providers.push(cloudflare(opts.cloudflare, http))
   if (opts.freeImages === "pollinations") providers.push(pollinations(opts.pollinationsUrl, http))
 
   return {
     enabled: providers.length > 0,
-    usesReferences: !!((opts.geminiKey && opts.geminiImageModel) || opts.cloudflare),
+    usesReferences: !!((opts.geminiKey && opts.geminiImageModel) || opts.cloudflare || opts.deapi),
     async generate(req) {
       const errors: Error[] = []
       for (const p of providers) {
@@ -125,6 +128,8 @@ export function referenceNote(req: TryOnRequest) {
     : `${n === 1 ? "Image 0 is" : `Images 0 to ${n - 1} are`} the user's own clothes.`
   return [
     n ? `${which} Dress the person in exactly ${n === 1 ? "this piece" : "all of these pieces together, every one clearly visible"}, keeping their colours, wash, prints, details and cut.` : "",
+    // models copy everything in a reference photo: shop tags, hangers, even a back pocket onto the front
+    n ? "Copy only the garments themselves, worn the right way round: leave out hangers, price tags, labels, mannequins and the photos' backgrounds, and keep back details such as back pockets at the back." : "",
     req.face ? `Image ${n} is the person's face: the person must look like them.` : "",
   ].join(" ").trim()
 }
@@ -200,6 +205,71 @@ function cloudflare(cf: CloudflareOptions, http: typeof fetch): Provider {
       )
       queue = run.catch(() => undefined)
       return run
+    },
+  }
+}
+
+type DeapiOptions = {
+  token: string
+  /** an image-edit model taking several reference photos, e.g. Flux_2_Klein_4B_BF16 */
+  model: string
+  /** "tryons": only "see it on you" pictures; "all": studio photos too */
+  use: "tryons" | "all"
+  /** wait between job status checks (tests set it low) */
+  pollMs?: number
+}
+
+// deAPI (deapi.ai): pay per picture from prepaid credit ($5 free on sign-up), about $0.007 a try-on.
+// Same FLUX.2 klein 4B as Cloudflare, but without its 512px limit on the reference photos, so prints
+// and details come through. Jobs are queued: start one, then poll until it's done.
+function deapi(opts: DeapiOptions, http: typeof fetch): Provider {
+  const api = "https://api.deapi.ai/api/v2"
+  const auth = { Authorization: `Bearer ${opts.token}`, Accept: "application/json" }
+  // out of credit or refused: skip it for a while instead of slowing every picture down
+  let pausedUntil = 0
+  const pause = (why: string) => {
+    pausedUntil = Date.now() + 60 * 60 * 1000
+    console.warn(`[images] deapi paused for an hour: ${why}`)
+  }
+  const size = (n: number | undefined, fallback: number) => Math.min(1536, Math.max(256, Math.round((n ?? fallback) / 16) * 16))
+  return {
+    name: `deapi ${opts.model}`,
+    accepts: (req) => Date.now() >= pausedUntil && (opts.use === "all" ? !!(req.garments?.length || req.face) : isTryOn(req)),
+    async generate(req) {
+      // up to 3 reference photos; the face goes last
+      const refs = [...(req.garments ?? []).slice(0, req.face ? 2 : 3), ...(req.face ? [req.face] : [])]
+      const form = new FormData()
+      form.append("prompt", `${req.prompt} ${referenceNote({ ...req, garments: refs.slice(0, req.face ? -1 : undefined) })}`.trim())
+      form.append("model", opts.model)
+      form.append("seed", String(Math.floor(Math.random() * 1e9)))
+      form.append("width", String(size(req.width, 768)))
+      form.append("height", String(size(req.height, 1024)))
+      form.append("steps", "4")
+      const small = await Promise.all(refs.map((r) => shrinkImage(r, 1024)))
+      small.forEach((r, i) => form.append("images[]", new Blob([r.bytes as Uint8Array<ArrayBuffer>], { type: r.contentType }), `ref${i}`))
+
+      const start = await http(`${api}/images/edits`, { method: "POST", headers: auth, body: form, signal: AbortSignal.timeout(60_000) })
+      const started = (await start.json().catch(() => null)) as { data?: { request_id?: string }; message?: string } | null
+      const id = started?.data?.request_id
+      if (!start.ok || !id) {
+        const why = `HTTP ${start.status} ${started?.message ?? ""}`.trim()
+        // 401/402/403: bad key, no credit left or not allowed; 429: rate limited for the day
+        if ([401, 402, 403].includes(start.status) || /credit|balance|insufficient/i.test(why)) pause(why)
+        throw new Error(why)
+      }
+      type Job = { status?: string; result_url?: string; error_reason?: string; error_code?: string }
+      for (const until = Date.now() + 150_000; Date.now() < until; ) {
+        await new Promise((r) => setTimeout(r, opts.pollMs ?? 2000))
+        const res = await http(`${api}/jobs/${id}`, { headers: auth, signal: AbortSignal.timeout(30_000) })
+        const job = ((await res.json().catch(() => null)) as { data?: Job } | null)?.data
+        if (job?.status === "done" && job.result_url) {
+          const file = await http(job.result_url, { signal: AbortSignal.timeout(60_000) })
+          if (!file.ok) throw new Error(`deapi result download failed: ${file.status}`)
+          return { bytes: new Uint8Array(await file.arrayBuffer()), contentType: file.headers.get("content-type") ?? "image/png" }
+        }
+        if (job?.status === "error" || job?.status === "failed") throw new Error(`deapi job failed: ${job.error_reason ?? job.error_code ?? "unknown"}`)
+      }
+      throw new Error("deapi job took too long")
     },
   }
 }

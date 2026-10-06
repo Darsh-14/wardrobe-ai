@@ -116,14 +116,16 @@ ${pieces.map((p, i) => `${i + 1}. ${p}`).join("\n")}
 Look carefully at the picture. Is the whole person in frame from the top of the head to both feet?
 Which listed pieces can't be clearly seen being worn, for example because the picture is cut off above them,
 another garment covers them completely, or a different garment was drawn instead? Long tops that cover the
-upper part of trousers are fine as long as the trousers are visible below them.`,
+upper part of trousers are fine as long as the trousers are visible below them.
+Also look for stray bits copied from product photos: a price tag or label hanging off the clothes, a hanger,
+or a pocket or patch from one garment pasted onto another or in the wrong place.`,
         },
         "light",
       )
       // map each answer back to the listed name, even when it's shortened ("Blue Denim Jeans" for "bottoms: Blue Denim Jeans")
       const same = (a: string, b: string) => a.toLowerCase().includes(b.toLowerCase().trim())
       const missing = pieces.filter((p) => r.missing.some((m) => m.trim() && (same(p, m) || same(m, p))))
-      return { fullBody: r.fullBody, missing }
+      return { fullBody: r.fullBody, missing, strayBits: !!r.strayBits }
     },
   }
 }

@@ -72,7 +72,7 @@ function layering(items: ItemRow[]) {
       ? `The ${describe(top)} is worn over the ${describe(bottoms)}, and the ${describe(bottoms)} are clearly visible below its hem all the way down to the ankles.`
       : "",
     outer ? `The ${describe(outer)} is worn open on top.` : "",
-    shoes ? `The ${describe(shoes)} are visible on the feet.` : "",
+    shoes ? `The ${describe(shoes)} are visible on the feet.` : "Simple footwear that suits the outfit.",
   ].filter(Boolean).join(" ")
 }
 
@@ -142,15 +142,16 @@ export async function drawTryOn(
     if (!image) return null
     const check = await lookAt(stylist, image, req.labels)
     if (!check) return best?.image ?? image
-    const faults = check.missing.length * 2 + (check.fullBody ? 0 : 1)
+    const faults = check.missing.length * 2 + (check.fullBody ? 0 : 1) + (check.strayBits ? 1 : 0)
     if (!best || faults < best.faults) best = { image, faults }
     if (!faults) break
-    console.warn(`[tryon] picture ${i + 1} of ${attempts}: ${check.fullBody ? "" : "person cut off; "}missing: ${check.missing.join(", ") || "none"}`)
+    console.warn(`[tryon] picture ${i + 1} of ${attempts}: ${check.fullBody ? "" : "person cut off; "}${check.strayBits ? "stray tag/patch; " : ""}missing: ${check.missing.join(", ") || "none"}`)
     const missing = new Set(check.missing)
     order = [...order.filter((j) => missing.has(req.labels[j])), ...order.filter((j) => !missing.has(req.labels[j]))]
     fix = [
       check.missing.length ? `Most important: the person is visibly wearing ${check.missing.join(" and ")}, shown clearly and in full.` : "",
       check.fullBody ? "" : "Zoom out so the whole person fits, from the top of the head to the shoes, with space around them.",
+      check.strayBits ? "The clothes are worn naturally: no price tags, labels or hangers, and no pocket or patch from one garment on another." : "",
     ].filter(Boolean).join(" ")
   }
   return best!.image
