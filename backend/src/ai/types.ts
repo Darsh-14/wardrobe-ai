@@ -145,6 +145,8 @@ export type TryOnRequest = {
   face?: ImageBytes | null
   /** "studio": redo the photo in `garments` as a catalogue shot (the prompt explains the image itself) */
   mode?: "tryon" | "studio"
+  /** a second attempt at a try-on: drawn with the standard model to save the daily quota */
+  redraw?: boolean
   width?: number
   height?: number
 }

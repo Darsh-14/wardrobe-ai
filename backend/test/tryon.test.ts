@@ -1,6 +1,6 @@
 import sharp from "sharp"
 import { expect, it } from "vitest"
-import { createImageAI, fitReference } from "../src/ai/images.js"
+import { createImageAI, fitReference, QUOTA_MESSAGE, QuotaError } from "../src/ai/images.js"
 import type { ItemRow, LookRow } from "../src/queries.js"
 import { createStylist, type Ask } from "../src/ai/stylist.js"
 import { drawTryOn, garmentLabels, tryOnPrompt } from "../src/tryon.js"
@@ -212,6 +212,7 @@ it("redraws a try-on picture that leaves out the jeans, putting the jeans first"
   const image = await drawTryOn(images, stylist, { prompt: "A woman.", labels: pieces, garments: [kurta, jeans], width: 1024, height: 1536 })
   expect(image?.bytes).toEqual(new Uint8Array([2]))
   expect(asked).toHaveLength(2)
+  expect(asked.map((r) => (r as { redraw?: boolean }).redraw)).toEqual([false, true])
   expect(asked[1].labels).toEqual(["bottoms: Blue Denim Jeans", "top: Yellow Cotton Kurta"])
   expect(asked[1].garments).toEqual([jeans, kurta])
   expect(asked[1].prompt).toContain("visibly wearing bottoms: Blue Denim Jeans")
@@ -224,7 +225,7 @@ it("keeps the best picture, and doesn't redraw when it can't check", async () =>
   // always missing something: three pictures, the one with the fewest faults wins
   const faults = [{ fullBody: false, missing: ["a", "b"] }, { fullBody: true, missing: ["b"] }, { fullBody: false, missing: ["b"] }]
   const picky = { checkTryOn: async () => faults.shift()! }
-  expect((await drawTryOn(images, picky, { prompt: "x", labels: ["a", "b"], width: 1, height: 1 }))?.bytes).toEqual(new Uint8Array([2]))
+  expect((await drawTryOn(images, picky, { prompt: "x", labels: ["a", "b"], width: 1, height: 1 }, 3))?.bytes).toEqual(new Uint8Array([2]))
   expect(n).toBe(3)
 
   n = 0
@@ -237,4 +238,49 @@ it("matches the checker's piece names even when shortened", async () => {
   const ask = (async () => ({ fullBody: true, missing: ["Blue Denim Jeans", "a hat"] })) as unknown as Ask
   const check = await createStylist(ask).checkTryOn({ image: { data: "", mediaType: "image/jpeg" }, pieces: ["top: Yellow Cotton Kurta", "bottoms: Blue Denim Jeans"] })
   expect(check.missing).toEqual(["bottoms: Blue Denim Jeans"])
+})
+
+it("stops calling Cloudflare once the daily free quota is used up, and says so", async () => {
+  const urls: string[] = []
+  const cf = createImageAI({
+    replicateImageModel: "",
+    replicateBgModel: "",
+    freeImages: "none",
+    pollinationsUrl: "",
+    cloudflare: { accountId: "acc", token: "tok", model: "m1", editModel: "klein-4b", tryOnModel: "klein-9b" },
+    fetch: (async (url: string) => {
+      urls.push(url.split("/").pop()!)
+      return Response.json(
+        { success: false, errors: [{ code: 4006, message: "you have used up your daily free allocation of 10,000 neurons, please upgrade to Cloudflare's Workers Paid plan" }] },
+        { status: 429 },
+      )
+    }) as typeof fetch,
+  })
+  const shirt = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
+  const tryOn = cf.generate({ prompt: "try-on", garments: [shirt] })
+  await expect(tryOn).rejects.toBeInstanceOf(QuotaError)
+  await expect(tryOn).rejects.toThrow(QUOTA_MESSAGE)
+  // no pointless fallback to the 4B model: they share the quota
+  expect(urls).toEqual(["klein-9b"])
+  // later pictures fail straight away without calling Cloudflare
+  await expect(cf.generate({ prompt: "studio", garments: [shirt], mode: "studio" })).rejects.toBeInstanceOf(QuotaError)
+  expect(urls).toHaveLength(1)
+})
+
+it("redraws with the standard model, and other failures keep their reason", async () => {
+  const urls: string[] = []
+  const cf = createImageAI({
+    replicateImageModel: "",
+    replicateBgModel: "",
+    freeImages: "none",
+    pollinationsUrl: "",
+    cloudflare: { accountId: "acc", token: "tok", model: "m1", editModel: "klein-4b", tryOnModel: "klein-9b" },
+    fetch: (async (url: string) => {
+      urls.push(url.split("/").pop()!)
+      return Response.json({ errors: [{ code: 5000, message: "bad input" }] }, { status: 400 })
+    }) as typeof fetch,
+  })
+  const shirt = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
+  await expect(cf.generate({ prompt: "again", garments: [shirt], redraw: true })).rejects.toThrow(/No image provider could draw this picture \(HTTP 400 bad input\)/)
+  expect(urls).toEqual(["klein-4b"])
 })

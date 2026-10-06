@@ -144,6 +144,8 @@ export type Look = Omit<GeneratedLook, "tempC" | "items"> & {
   tempC: number | null;
   status: "pending" | "ready" | "failed";
   visualizationStatus: "pending" | "ready" | "failed";
+  /** why there's no AI photo (e.g. the day's free picture quota is used up) */
+  visualizationError?: string | null;
   saved: boolean;
   occasion?: string;
   location?: string | null;
