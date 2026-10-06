@@ -39,6 +39,8 @@ export async function itemsToApi(storage: Storage, rows: ItemRow[]) {
     color: i.color ?? "",
     season: i.season,
     imageUrl: urls.get(itemImage(i)) ?? "",
+    // "cutout": transparent PNG; "original": the photo as taken (kept on purpose); null: not cleaned up yet
+    photo: !i.cutout_path ? null : i.cutout_path === i.image_path ? "original" : "cutout",
     wornOften: !!i.worn_often,
     // extras the Add/Edit screens can use
     subcategory: i.subcategory,
@@ -135,6 +137,7 @@ export async function lookToApi(tx: Tx, storage: Storage, look: LookRow) {
     title: look.title ?? "",
     // until the image model finishes (or if none is configured) show the first item's photo
     visualizationUrl: (look.visualization_path && vizUrls.get(look.visualization_path)) || firstItemImage || "",
+    hasPicture: !!look.visualization_path,
     timeOfDay: timeOfDay(look.event_at),
     tempC: look.weather?.tempC ?? null,
     styleMatch: look.style_match ?? 0,
@@ -145,6 +148,9 @@ export async function lookToApi(tx: Tx, storage: Storage, look: LookRow) {
       name: i.name,
       meta: [i.category, i.material].filter(Boolean).join(" · "),
       imageUrl: itemUrls.get(itemImage(i)) ?? "",
+      // for the web app's model view, which layers the cutouts by category
+      category: i.category,
+      photo: !i.cutout_path ? null : i.cutout_path === i.image_path ? "original" : "cutout",
     })),
     // extras
     status: look.status,

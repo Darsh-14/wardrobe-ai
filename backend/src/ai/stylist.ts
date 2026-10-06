@@ -39,7 +39,7 @@ export function createStylist(ask: Ask): StylistAI {
         ScanResult,
         {
           image,
-          text: "Tag this clothing item for the user's digital wardrobe. Describe the main item only; ignore the background and any person wearing it.",
+          text: "Tag this clothing item for the user's digital wardrobe. Describe the main item only; ignore the background and any person wearing it. Include its bounding box.",
         },
         "light",
       )

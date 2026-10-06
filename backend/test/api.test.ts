@@ -150,10 +150,71 @@ describe("wardrobe", () => {
     expect((await call(MAYA, "DELETE", `/api/wardrobe/items/${added.body.id}`)).status).toBe(204)
   })
 
+  it("cleans up backgrounds: new cutouts, existing items, keep original", async () => {
+    const png = () => {
+      const form = new FormData()
+      form.append("file", new File([new Uint8Array([137, 80, 78, 71])], "cut.png", { type: "image/png" }))
+      return form
+    }
+    const scan = await call(MAYA, "POST", "/api/wardrobe/scan", png())
+    expect(scan.body.box).toEqual([0, 0, 1000, 1000])
+    expect(scan.body.item).not.toHaveProperty("box")
+    const cut = await call(MAYA, "POST", "/api/wardrobe/cutouts", png())
+    expect(cut.status).toBe(201)
+    expect(cut.body.cutoutPath).toMatch(new RegExp(`^${MAYA}/.*-cutout\\.png$`))
+    const added = await call(MAYA, "POST", "/api/wardrobe/items", { ...scan.body.item, cutoutPath: cut.body.cutoutPath })
+    expect(added.body.photo).toBe("cutout")
+
+    // JPEGs have no transparency
+    const jpg = new FormData()
+    jpg.append("file", new File([new Uint8Array([255, 216])], "a.jpg", { type: "image/jpeg" }))
+    expect((await call(MAYA, "POST", "/api/wardrobe/cutouts", jpg)).status).toBe(415)
+
+    const items = (await call(MAYA, "GET", "/api/wardrobe/items")).body as { id: string; photo: string | null }[]
+    const old = items.find((i) => i.photo === null)!
+    expect(old).toBeTruthy()
+
+    // the original photo of the user's own item, with where the item is in it
+    await deps.storage.upload("wardrobe", `${MAYA}/orig.png`, new Uint8Array([137, 80, 78, 71]), "image/png")
+    await deps.db.sql`update wardrobe_items set image_path = ${`${MAYA}/orig.png`} where id = ${added.body.id}`
+    const res = await app.request(`/api/wardrobe/items/${added.body.id}/original`, { headers: { authorization: `Bearer ${await token(MAYA)}` } })
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toBe("image/png")
+    expect(res.headers.get("x-item-box")).toBe("0,0,1000,1000")
+    expect((await call(EVE, "GET", `/api/wardrobe/items/${added.body.id}/original`)).status).toBe(404)
+
+    const set = await call(MAYA, "POST", `/api/wardrobe/items/${old.id}/cutout`, png())
+    expect(set.body.photo).toBe("cutout")
+    const kept = await call(MAYA, "POST", `/api/wardrobe/items/${old.id}/cutout?keep=original`)
+    expect(kept.body.photo).toBe("original")
+    expect((await call(EVE, "POST", `/api/wardrobe/items/${old.id}/cutout?keep=original`)).status).toBe(404)
+    await call(MAYA, "DELETE", `/api/wardrobe/items/${added.body.id}`)
+  })
+
   it("rejects non-image uploads", async () => {
     const form = new FormData()
     form.append("file", new File(["hi"], "a.txt", { type: "text/plain" }))
     expect((await call(MAYA, "POST", "/api/wardrobe/scan", form)).status).toBe(415)
+  })
+})
+
+describe("body profile and face photo", () => {
+  it("keeps the face photo when the body profile is edited and deletes it on request", async () => {
+    const face = new FormData()
+    face.append("file", new File([new Uint8Array([137, 80, 78, 71])], "me.png", { type: "image/png" }))
+    const up = await call(MAYA, "POST", "/api/me/face", face)
+    expect(up.status).toBe(200)
+    expect(up.body.bodyProfile.faceUrl).toMatch(/\/files\/avatars\//)
+    expect(up.body.bodyProfile).not.toHaveProperty("facePath")
+
+    const body = { model: "Woman", heightCm: 162, weightKg: 58, build: "Curvy", skinTone: "Wheatish", facePath: "someone-else/x.png" }
+    const patched = await call(MAYA, "PATCH", "/api/me", { bodyProfile: body })
+    expect(patched.body.bodyProfile).toMatchObject({ model: "Woman", heightCm: 162, build: "Curvy" })
+    expect(patched.body.bodyProfile.faceUrl).toBe(up.body.bodyProfile.faceUrl) // not overwritten by the client
+
+    const removed = await call(MAYA, "DELETE", "/api/me/face")
+    expect(removed.body.bodyProfile.faceUrl).toBeNull()
+    expect(removed.body.bodyProfile.heightCm).toBe(162)
   })
 })
 

@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { AuthEnv } from "../auth.js"
 import type { Tx } from "../db.js"
 import type { Deps } from "../deps.js"
+import { editorial } from "../ai/images.js"
 import { HttpError, idParam, parseBody } from "../http.js"
 import { formatPrice, itemImage, itemsForAI, profile, profileForAI, wardrobeItems, type ItemRow } from "../queries.js"
 
@@ -79,7 +80,7 @@ export function stylistRoutes(deps: Deps) {
               ${clamp(r.styleMatch, 0, 100)}, ${clamp(r.newLooks, 0, 99)})
       returning id`)
     deps.jobs.run(`recommendation ${row.id}`, async () => {
-      const image = await deps.images.generate(r.visualPrompt)
+      const image = await deps.images.generate({ prompt: editorial(r.visualPrompt) })
       if (!image) return
       const path = `${userId}/recommendations/${row.id}.webp`
       await storage.upload("looks", path, image.bytes, image.contentType)
@@ -166,7 +167,7 @@ export function stylistRoutes(deps: Deps) {
       return shoppingToApi(tx, row)
     })
     deps.jobs.run(`shopping ${ctx.id}`, async () => {
-      const image = await deps.images.generate(r.visualPrompt)
+      const image = await deps.images.generate({ prompt: editorial(r.visualPrompt) })
       if (!image) return
       const path = `${user.id}/shopping/${ctx.id}.webp`
       await storage.upload("looks", path, image.bytes, image.contentType)

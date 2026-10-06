@@ -1,7 +1,7 @@
 // Photo storage. Database columns hold object paths ("<user_id>/<file>"); the API turns them into
 // short-lived signed URLs. Values that are already URLs (the seed's Unsplash photos) pass through.
 import { createClient } from "@supabase/supabase-js"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, normalize } from "node:path"
 import type { Config } from "./config.js"
 
@@ -12,6 +12,18 @@ export interface Storage {
   /** Map of path -> URL for display. Missing/empty paths are skipped. */
   urls(bucket: Bucket, paths: (string | null | undefined)[]): Promise<Map<string, string>>
   read?(bucket: Bucket, path: string): Promise<Uint8Array>
+  /** File bytes and type; paths that are URLs (seed photos) are fetched. */
+  download(bucket: Bucket, path: string): Promise<{ bytes: Uint8Array; contentType: string }>
+  remove(bucket: Bucket, paths: string[]): Promise<void>
+}
+
+const TYPES: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" }
+const typeOf = (path: string) => TYPES[path.split("?")[0].split(".").pop()?.toLowerCase() ?? ""] ?? "image/jpeg"
+
+async function fetchUrl(url: string) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) })
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`)
+  return { bytes: new Uint8Array(await res.arrayBuffer()), contentType: res.headers.get("content-type") ?? typeOf(url) }
 }
 
 const SIGNED_URL_TTL = 60 * 60 // 1 hour
@@ -46,6 +58,18 @@ function supabaseStorage(config: Config): Storage {
       }
       return out
     },
+    async download(bucket, path) {
+      if (isUrl(path)) return fetchUrl(path)
+      const { data, error } = await client.storage.from(bucket).download(path)
+      if (error || !data) throw new Error(`Storage download failed: ${error?.message ?? "no data"}`)
+      return { bytes: new Uint8Array(await data.arrayBuffer()), contentType: data.type || typeOf(path) }
+    },
+    async remove(bucket, paths) {
+      const own = paths.filter((p) => p && !isUrl(p))
+      if (!own.length) return
+      const { error } = await client.storage.from(bucket).remove(own)
+      if (error) throw new Error(`Storage delete failed: ${error.message}`)
+    },
   }
 }
 
@@ -71,5 +95,10 @@ function localStorage(config: Config): Storage {
       return out
     },
     read: (bucket, path) => readFile(safe(bucket, path)),
+    download: async (bucket, path) =>
+      isUrl(path) ? fetchUrl(path) : { bytes: await readFile(safe(bucket, path)), contentType: typeOf(path) },
+    async remove(bucket, paths) {
+      for (const p of paths) if (p && !isUrl(p)) await rm(safe(bucket, p), { force: true })
+    },
   }
 }

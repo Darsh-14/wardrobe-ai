@@ -7,6 +7,7 @@ import type { Deps } from "../deps.js"
 import { HttpError, idParam, parseBody, parseQuery } from "../http.js"
 import {
   itemsForAI,
+  itemImage,
   itemsToApi,
   lookToApi,
   profile,
@@ -14,7 +15,9 @@ import {
   wardrobeItems,
   type ItemRow,
   type LookRow,
+  type ProfileRow,
 } from "../queries.js"
+import { tryOnPrompt, type BodyProfile } from "../tryon.js"
 import type { Weather } from "../weather.js"
 
 // Body of "Create my look" / "Try another": the generator's five fields (LookRequest)
@@ -217,7 +220,7 @@ export function lookRoutes(deps: Deps) {
       return { look: await lookToApi(tx, storage, { ...look, visualization_path: null, visualization_status: "pending" }) }
     })
     if (res.look) {
-      queueVisualization(deps, user.id, id, `Outfit: ${res.look.items.map((i) => i.name).join(", ")}`)
+      queueVisualization(deps, user.id, id)
       return c.json(res.look)
     }
     return c.json(res)
@@ -252,24 +255,43 @@ export function lookRoutes(deps: Deps) {
       await tx`update looks set visualization_status = 'pending', error = null where id = ${id}`
       return lookToApi(tx, storage, await loadLook(tx, id))
     })
-    queueVisualization(deps, user.id, id, `Outfit: ${look.items.map((i) => i.name).join(", ")}`)
+    queueVisualization(deps, user.id, id)
     return c.json(look, 202)
   })
 
   return app
 }
 
-function queueVisualization(deps: Deps, userId: string, lookId: string, prompt: string) {
+function queueVisualization(deps: Deps, userId: string, lookId: string, scene?: string) {
   deps.jobs.run(`visualize ${lookId}`, async () => {
     try {
-      const image = await deps.images.generate(prompt)
+      const ctx = await deps.db.asService(async (tx) => {
+        const [look] = await tx<LookRow[]>`select * from looks where id = ${lookId}`
+        const items = await tx<ItemRow[]>`
+          select wi.* from look_items li join wardrobe_items wi on wi.id = li.wardrobe_item_id
+          where li.look_id = ${lookId} order by li.position`
+        const [p] = await tx<ProfileRow[]>`select * from profiles where id = ${userId}`
+        return { look, items, body: (p?.body_profile ?? {}) as BodyProfile }
+      })
+      if (!ctx.look) return
+      const prompt = tryOnPrompt({ ...ctx, scene })
+      // only models that take reference photos need the pieces and the face
+      const fetchRefs = deps.images.usesReferences
+      const [garments, face] = fetchRefs
+        ? await Promise.all([
+            Promise.all(ctx.items.map((i) => deps.storage.download("wardrobe", itemImage(i)))),
+            ctx.body.facePath ? deps.storage.download("avatars", ctx.body.facePath).catch(() => null) : null,
+          ])
+        : [undefined, null]
+      const image = await deps.images.generate({ prompt, garments, face })
       if (!image) {
         await deps.db.asService((tx) =>
           tx`update looks set visualization_status = 'failed', error = 'image generation not configured' where id = ${lookId}`,
         )
         return
       }
-      const path = `${userId}/looks/${lookId}-${Date.now()}.${image.contentType.includes("png") ? "png" : "webp"}`
+      const ext = image.contentType.includes("png") ? "png" : image.contentType.includes("jpeg") ? "jpg" : "webp"
+      const path = `${userId}/looks/${lookId}-${Date.now()}.${ext}`
       await deps.storage.upload("looks", path, image.bytes, image.contentType)
       await deps.db.asService((tx) =>
         tx`update looks set visualization_path = ${path}, visualization_status = 'ready', error = null where id = ${lookId}`,

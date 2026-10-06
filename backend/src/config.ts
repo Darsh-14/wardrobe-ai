@@ -43,6 +43,13 @@ const Env = z.object({
   REPLICATE_IMAGE_MODEL: z.string().default("black-forest-labs/flux-schnell"),
   REPLICATE_BG_REMOVAL_MODEL: z.string().default("851-labs/background-remover"),
 
+  // Free pictures for looks, recommendations and trends: "pollinations" (free, no key) or "none"
+  FREE_IMAGES: z.enum(["pollinations", "none"]).default("pollinations"),
+  POLLINATIONS_URL: z.string().default("https://image.pollinations.ai/prompt/"),
+  // Optional Gemini image model for try-ons with the actual pieces and face photo, e.g.
+  // gemini-2.5-flash-image. Off by default: only set it if Google gives your key a free quota for it.
+  GEMINI_IMAGE_MODEL: z.string().optional(),
+
   // "open-meteo" (free, no key) or "mock"
   WEATHER_PROVIDER: z.enum(["open-meteo", "mock"]).default("open-meteo"),
 })

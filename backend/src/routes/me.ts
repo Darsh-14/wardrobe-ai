@@ -40,7 +40,8 @@ export function meRoutes(deps: Deps) {
   const app = new Hono<AuthEnv>()
 
   const toApi = async (p: ProfileRow, email?: string) => {
-    const urls = await storage.urls("avatars", [p.avatar_path])
+    const { facePath, ...body } = p.body_profile as { facePath?: string | null }
+    const urls = await storage.urls("avatars", [p.avatar_path, facePath])
     return {
       name: p.name,
       city: p.city ?? "",
@@ -50,7 +51,8 @@ export function meRoutes(deps: Deps) {
       styleTags: p.style_tags,
       // extras for the settings rows
       email: email ?? null,
-      bodyProfile: p.body_profile,
+      // the face photo comes back as a short-lived URL, never as a storage path
+      bodyProfile: { ...body, faceUrl: (facePath && urls.get(facePath)) || null },
       stylePrefs: p.style_prefs,
     }
   }
@@ -66,12 +68,14 @@ export function meRoutes(deps: Deps) {
     const user = c.get("user")
     const body = await parseBody(c, PatchMe)
     const p = await db.asUser(user.id, user.claims, async (tx) => {
+      const current = await profile(tx, user.id)
       const cols = {
         name: body.name,
         city: body.city,
         style_dna: body.styleDna,
         style_tags: body.styleTags,
-        body_profile: body.bodyProfile && tx.json(body.bodyProfile as never),
+        // the face photo is only set through /me/face
+        body_profile: body.bodyProfile && tx.json(mergeBody(current.body_profile, body.bodyProfile) as never),
         style_prefs: body.stylePrefs && tx.json(body.stylePrefs as never),
       }
       const set = Object.fromEntries(Object.entries(cols).filter(([, v]) => v !== undefined))
@@ -90,6 +94,33 @@ export function meRoutes(deps: Deps) {
       await tx`update profiles set avatar_path = ${path} where id = ${user.id}`
       return refreshCompletion(tx, user.id)
     })
+    return c.json(await toApi(p, user.email))
+  })
+
+  // Optional face photo for "see it on you" pictures (Profile > Body & fit profile)
+  app.post("/me/face", async (c) => {
+    const user = c.get("user")
+    const img = await readImageUpload(c, 5 * 1024 * 1024)
+    const path = `${user.id}/face-${randomUUID()}.${img.ext}`
+    await storage.upload("avatars", path, img.bytes, img.mediaType)
+    const { p, old } = await db.asUser(user.id, user.claims, async (tx) => {
+      const old = (await profile(tx, user.id)).body_profile.facePath as string | undefined
+      await tx`update profiles set body_profile = body_profile || ${tx.json({ facePath: path } as never)} where id = ${user.id}`
+      return { p: await profile(tx, user.id), old }
+    })
+    if (old) await storage.remove("avatars", [old]).catch(() => undefined)
+    return c.json(await toApi(p, user.email))
+  })
+
+  app.delete("/me/face", async (c) => {
+    const user = c.get("user")
+    const { p, old } = await db.asUser(user.id, user.claims, async (tx) => {
+      const old = (await profile(tx, user.id)).body_profile.facePath as string | undefined
+      await tx`update profiles set body_profile = body_profile - 'facePath' where id = ${user.id}`
+      return { p: await profile(tx, user.id), old }
+    })
+    // the photo is deleted, not just unlinked
+    if (old) await storage.remove("avatars", [old])
     return c.json(await toApi(p, user.email))
   })
 
@@ -116,6 +147,11 @@ export function meRoutes(deps: Deps) {
   })
 
   return app
+}
+
+function mergeBody(current: Record<string, unknown>, patch: Record<string, unknown>) {
+  const { facePath: _, faceUrl: __, ...rest } = patch
+  return { ...rest, ...(current.facePath ? { facePath: current.facePath } : {}) }
 }
 
 async function refreshCompletion(tx: Tx, userId: string) {

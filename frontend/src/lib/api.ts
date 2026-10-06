@@ -14,6 +14,7 @@ import type {
   WardrobeItem,
   Weather,
 } from "../types";
+import type { Box } from "./cutout";
 
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 const SESSION_KEY = "wardrobe-ai.session";
@@ -96,6 +97,7 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  raw = false,
 ): Promise<T> {
   const build = (s: Session | null): RequestInit => {
     const headers: Record<string, string> = {};
@@ -118,6 +120,7 @@ async function request<T>(
   }
   if (res.status === 401) setSession(null);
   if (!res.ok) throw await errorFrom(res);
+  if (raw) return res as T;
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -125,15 +128,29 @@ async function request<T>(
 const get = <T>(path: string) => request<T>("GET", path);
 const post = <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {});
 
-export type Me = UserProfile & { email: string | null };
-export type Look = Omit<GeneratedLook, "tempC"> & {
+export type NewItem = Record<string, unknown>;
+export type Scan = ItemScan & { item: NewItem; box?: Box | null };
+/** Profile > Body & fit profile; used to draw the model in "see it on you" */
+export type BodyProfile = {
+  model?: "Woman" | "Man";
+  heightCm?: number;
+  weightKg?: number;
+  build?: string;
+  skinTone?: string;
+  faceUrl?: string | null;
+};
+export type Me = UserProfile & { email: string | null; bodyProfile?: BodyProfile };
+export type Look = Omit<GeneratedLook, "tempC" | "items"> & {
   tempC: number | null;
   status: "pending" | "ready" | "failed";
   visualizationStatus: "pending" | "ready" | "failed";
   saved: boolean;
+  occasion?: string;
+  location?: string | null;
+  weather?: { tempC: number; condition: string } | null;
+  hasPicture?: boolean;
+  items: (GeneratedLook["items"][number] & { category?: string; photo?: "cutout" | "original" | null })[];
 };
-export type NewItem = Record<string, unknown>;
-export type Scan = ItemScan & { item: NewItem };
 export type Rec = Recommendation & { id: string; productName: string };
 export type TodaysPick = { id: string; title: string; imageUrl: string } | null;
 
@@ -158,8 +175,14 @@ export const api = {
   },
 
   me: () => get<Me>("/me"),
-  updateMe: (patch: Partial<Pick<UserProfile, "name" | "city" | "styleDna" | "styleTags">>) =>
+  updateMe: (patch: Partial<Pick<UserProfile, "name" | "city" | "styleDna" | "styleTags"> & { bodyProfile: BodyProfile }>) =>
     request<Me>("PATCH", "/me", patch),
+  uploadFace(file: Blob) {
+    const form = new FormData();
+    form.append("file", file, "face.jpg");
+    return post<Me>("/me/face", form);
+  },
+  deleteFace: () => request<Me>("DELETE", "/me/face"),
   stats: () => get<UserStats>("/me/stats"),
   weather: (location?: string) =>
     get<Weather & { location: string }>(`/weather${location ? `?location=${encodeURIComponent(location)}` : ""}`),
@@ -173,6 +196,24 @@ export const api = {
     return post<Scan>("/wardrobe/scan", form);
   },
   addItem: (item: NewItem) => post<WardrobeItem>("/wardrobe/items", item),
+  /** Uploads a background-free PNG for a scan that isn't saved yet */
+  uploadCutout(png: Blob) {
+    const form = new FormData();
+    form.append("file", png, "cutout.png");
+    return post<{ cutoutPath: string; imageUrl: string }>("/wardrobe/cutouts", form);
+  },
+  /** A saved item's original photo and where the item is in it */
+  async itemOriginal(id: string) {
+    const res = await request<Response>("GET", `/wardrobe/items/${id}/original`, undefined, true);
+    const box = res.headers.get("X-Item-Box")?.split(",").map(Number) as Box | undefined;
+    return { photo: await res.blob(), box: box?.length === 4 ? box : null };
+  },
+  setItemCutout(id: string, png: Blob | null) {
+    if (!png) return post<WardrobeItem>(`/wardrobe/items/${id}/cutout?keep=original`);
+    const form = new FormData();
+    form.append("file", png, "cutout.png");
+    return post<WardrobeItem>(`/wardrobe/items/${id}/cutout`, form);
+  },
   setFavorite: (id: string, favorite: boolean) =>
     request<WardrobeItem>("PATCH", `/wardrobe/items/${id}`, { favorite }),
 
@@ -189,6 +230,8 @@ export const api = {
   save: (id: string, saved: boolean) => request<{ saved: boolean }>(saved ? "POST" : "DELETE", `/looks/${id}/save`),
   wear: (id: string) => post<{ logged: boolean }>(`/looks/${id}/wear`),
   today: () => get<TodaysPick>("/looks/today"),
+  /** Makes the AI photo again, e.g. after the body profile changed */
+  visualize: (id: string) => post<Look>(`/looks/${id}/visualize`),
 
   trends: () => get<Trend[]>("/trends"),
   recommendation: () => get<Rec>("/recommendations"),

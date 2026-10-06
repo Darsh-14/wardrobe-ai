@@ -35,6 +35,8 @@ export type WardrobeItem = {
   imageUrl: string
   wornOften: boolean
   favorite?: boolean
+  /** "cutout": background removed; "original": photo kept as taken; null: not cleaned up yet */
+  photo?: "cutout" | "original" | null
 }
 
 export type CategorySummary = {

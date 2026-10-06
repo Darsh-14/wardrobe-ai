@@ -39,6 +39,10 @@ export const ScanResult = z.object({
   style: z.string().describe("One or two words joined by ' · ', e.g. 'Relaxed · Minimal'"),
   season: z.string().describe("'All season', 'Summer', 'Winter', 'Monsoon', 'Spring/Autumn'"),
   isClothing: z.boolean().describe("false if the photo does not show a wearable item"),
+  box: z
+    .array(z.number())
+    .describe("Tight bounding box of the main item only (not the person or background) as [ymin, xmin, ymax, xmax], each 0-1000")
+    .optional(),
 })
 export type ScanResult = Omit<z.infer<typeof ScanResult>, "category"> & { category: Category }
 
@@ -61,7 +65,9 @@ export const LookResult = z.object({
   reasoning: z.string().describe("1-2 sentences in second person on why this works for the occasion, weather and style"),
   tags: z.array(z.string()).describe("2-3 short tags such as 'Color harmony', 'Weather ready'"),
   styleMatch: z.number().describe("0-100 fit with the user's style"),
-  visualPrompt: z.string().describe("One sentence describing the outfit worn by a person, for an image model"),
+  visualPrompt: z
+    .string()
+    .describe("One sentence for an image model: a specific, recognisable setting at the user's destination and a natural pose there, e.g. 'leaning on the sea wall at Marine Drive at sunset'. Don't describe the person or the clothes."),
 })
 export type LookResult = z.infer<typeof LookResult>
 
@@ -116,9 +122,22 @@ export interface StylistAI {
   cityTrends(input: { city: string; month: string }): Promise<TrendsResult>
 }
 
+export type ImageBytes = { bytes: Uint8Array; contentType: string }
+
+export type TryOnRequest = {
+  /** Full text prompt: the person, the clothes, the place and the pose */
+  prompt: string
+  /** Photos of the actual pieces (background removed where possible), for models that take images */
+  garments?: ImageBytes[]
+  /** Optional face photo the person should resemble */
+  face?: ImageBytes | null
+}
+
 export interface ImageAI {
   enabled: boolean
+  /** true when a provider uses the garment and face photos (they are only downloaded then) */
+  usesReferences?: boolean
   /** Returns image bytes, or null when no image provider is configured. */
-  generate(prompt: string): Promise<{ bytes: Uint8Array; contentType: string } | null>
+  generate(req: TryOnRequest): Promise<ImageBytes | null>
   removeBackground(imageUrl: string): Promise<{ bytes: Uint8Array; contentType: string } | null>
 }

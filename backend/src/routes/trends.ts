@@ -4,6 +4,7 @@ import { Hono } from "hono"
 import { z } from "zod"
 import type { AuthEnv } from "../auth.js"
 import type { Deps } from "../deps.js"
+import { editorial } from "../ai/images.js"
 import { HttpError, parseQuery } from "../http.js"
 import { profile } from "../queries.js"
 
@@ -82,7 +83,7 @@ export function trendRoutes(deps: Deps) {
 
 function queueTrendImage(deps: Deps, trendId: string, prompt: string) {
   deps.jobs.run(`trend ${trendId}`, async () => {
-    const image = await deps.images.generate(prompt)
+    const image = await deps.images.generate({ prompt: editorial(prompt) })
     if (!image) return
     const path = `trends/${trendId}.webp`
     await deps.storage.upload("looks", path, image.bytes, image.contentType)

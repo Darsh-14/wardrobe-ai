@@ -12,6 +12,10 @@ import {
 import { api, ApiError, getSession, shrinkPhoto, type Look, type Me, type Scan } from "./lib/api";
 import { useApi } from "./lib/useApi";
 import SignIn from "./SignIn";
+import { Rack, RACK_ORDER, useBackgroundCleanup } from "./Closet";
+import { makeCutout, warmUpCutouts } from "./lib/cutout";
+import ModelView from "./ModelView";
+import BodyProfileSheet from "./BodyProfileSheet";
 import type { LookRequest, Screen, UserStats, Weather } from "./types";
 
 // Signed-in user's profile, stats and local weather, shared by the top bar and every screen
@@ -311,8 +315,12 @@ function Loading() {
 }
 
 function GeneratedLook({ look, setLook, occasion, retry }: { look: Look; setLook: (l: Look) => void; occasion: string; retry: () => void }) {
-  const { refreshStats } = useAppData();
+  const { refreshStats, me, setMe } = useAppData();
   const generatedLook = look;
+  // AI photo when one exists, otherwise the model wearing the actual pieces
+  const [view,setView]=useState<"photo"|"model">(look.hasPicture ? "photo" : "model");
+  const [bodyOpen,setBodyOpen]=useState(false);
+  useEffect(()=>{ if (look.hasPicture) setView("photo"); },[look.hasPicture]);
   const saved = look.saved;
   const [wearing,setWearing]=useState(false);
   const [changed,setChanged]=useState<number|null>(null);
@@ -355,7 +363,13 @@ function GeneratedLook({ look, setLook, occasion, retry }: { look: Look; setLook
     </div>
     <div className="grid gap-5 lg:grid-cols-[1.35fr_.65fr]">
       <section className="relative min-h-[720px] overflow-hidden rounded-[32px] bg-[#ded8cc]">
-        <img src={generatedLook.visualizationUrl || photos.hero} alt="AI visualization of you wearing the selected outfit" className="absolute inset-0 h-full w-full object-cover object-top"/>
+        {view==="photo" && look.hasPicture
+          ? <img src={generatedLook.visualizationUrl || photos.hero} alt="AI visualization of you wearing the selected outfit" className="absolute inset-0 h-full w-full object-cover object-top"/>
+          : <ModelView look={look} body={me?.bodyProfile} timeOfDay={look.timeOfDay}/>}
+        <div className="absolute left-4 top-4 z-10 flex gap-1 rounded-full bg-white/85 p-1 text-[11px] font-semibold backdrop-blur sm:left-6 sm:top-6">
+          {(["photo","model"] as const).map(v=><button key={v} onClick={()=>setView(v)} aria-pressed={view===v} className={`rounded-full px-3 py-1.5 ${view===v?"bg-[#20251f] text-white":""}`}>{v==="photo" ? (look.hasPicture ? "AI photo" : look.visualizationStatus==="pending" ? "AI photo · making..." : "AI photo · unavailable") : "Your pieces"}</button>)}
+        </div>
+        {!me?.bodyProfile?.heightCm && <button onClick={()=>setBodyOpen(true)} className="absolute right-4 top-4 z-10 rounded-full bg-[#d8ff60] px-3 py-2 text-[11px] font-bold sm:right-6 sm:top-6">Add your body type</button>}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-6 pt-32 text-white sm:p-8">
           <div className="flex items-end justify-between gap-5">
             <div><div className="mb-2 flex w-fit items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-semibold backdrop-blur-md"><Icon name="wand" size={13}/> AI visualization</div><div className="font-serif text-3xl">{generatedLook.title}</div><div className="mt-1 text-xs text-white/65">{[generatedLook.timeOfDay, generatedLook.tempC == null ? null : `${generatedLook.tempC}°`, `${generatedLook.styleMatch}% style match`].filter(Boolean).join(" · ")}</div></div>
@@ -373,6 +387,7 @@ function GeneratedLook({ look, setLook, occasion, retry }: { look: Look; setLook
           </div>)}</div>
           {changed!==null&&<div className="mt-4 rounded-2xl bg-[#20251f] p-4 text-white"><div className="flex items-center justify-between gap-3"><div><div className="text-xs font-semibold">Try a different option?</div><div className="mt-1 text-[10px] text-white/55">{alternatives === null ? "Looking through your wardrobe..." : alternatives.length ? `AI found ${alternatives.length} compatible ${alternatives.length === 1 ? "piece" : "pieces"}.` : "No other pieces in this category yet."}</div></div><Button onClick={alternatives?.length ? regenerate : ()=>setChanged(null)} className={`bg-[#d8ff60]! px-4 py-2! text-[#20251f]! ${busy || alternatives === null ? "pointer-events-none opacity-50" : ""}`}>{alternatives?.length === 0 ? "Close" : "Regenerate"}</Button></div></div>}
         </section>
+        {bodyOpen && <BodyProfileSheet me={me} onSaved={(m)=>{setMe(m);api.visualize(look.id).then(setLook).catch(()=>undefined);}} onClose={()=>setBodyOpen(false)}/>}
         <section className="rounded-[28px] bg-[#e6dfd4] p-6"><Eyebrow>Why it works</Eyebrow><p className="font-serif text-2xl leading-snug">{`“${generatedLook.reasoning}”`}</p><div className="mt-4 flex gap-2 text-[10px] font-semibold">{generatedLook.tags.map(t=><span key={t} className="rounded-full bg-white/60 px-3 py-1.5">{t}</span>)}</div></section>
         {error && <ErrorNote>{error}</ErrorNote>}
         <Button onClick={wearing ? undefined : wear} className="w-full py-4.5 text-base">{wearing?<><Icon name="check"/> Added to outfit calendar</>:<>Wear This <Icon name="arrow"/></>}</Button>
@@ -390,17 +405,20 @@ function Wardrobe({ go }: { go: (s: Screen)=>void }) {
     items.setData(wardrobeItems.map((i) => (i.id === id ? { ...i, favorite } : i)));
     api.setFavorite(id, favorite).catch(() => items.reload());
   };
+  const { cleaning, progress } = useBackgroundCleanup(wardrobeItems, (updated) =>
+    items.setData((list) => (list ?? []).map((i) => (i.id === updated.id ? { ...i, ...updated } : i))));
+  const racks = RACK_ORDER.map((c) => [c, wardrobeItems.filter((i) => i.category === c)] as const).filter(([, list]) => list.length);
   return <main className="mx-auto max-w-[1440px] px-5 py-10 pb-36 lg:px-10 lg:py-16">
     <div className="flex flex-wrap items-end justify-between gap-6"><div><Eyebrow>Your digital closet</Eyebrow><div className="font-serif text-5xl tracking-tight sm:text-6xl">Your Wardrobe <i className="font-normal text-[#838a80]">{`(${stats?.wardrobeCount ?? 0})`}</i></div><p className="mt-3 text-sm text-[#737a70]">Everything you own, understood by AI.</p></div><Button onClick={()=>go("add")}><Icon name="plus" size={18}/> Add new item</Button></div>
     <div className="no-scrollbar mt-10 flex gap-2 overflow-x-auto pb-2">{wardrobeCategories.map(c=><button key={c} onClick={()=>setCategory(c)} aria-pressed={category===c} className={`whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-semibold transition ${category===c?"bg-[#20251f] text-white":"border border-[#d9ddd5] bg-white hover:border-[#aeb5aa]"}`}>{c}</button>)}</div>
+    {progress && <div className="mt-6 flex items-center gap-3 rounded-[20px] bg-[#20251f] px-5 py-3.5 text-xs text-white"><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#d8ff60] border-t-transparent"/><span className="flex-1">{`Giving your photos a clean background · ${progress.done} of ${progress.total}`}</span><span className="hidden text-white/50 sm:inline">The first one takes longer while the AI model downloads.</span></div>}
     {items.error && <div className="mt-8"><ErrorNote>{items.error.message}</ErrorNote></div>}
     {!items.loading && !items.error && !wardrobeItems.length && <button onClick={()=>go("add")} className="mt-8 flex w-full flex-col items-center rounded-[30px] border-2 border-dashed border-[#cbd0c7] bg-white p-12 text-center"><span className="grid h-14 w-14 place-items-center rounded-full bg-[#eef5d4]"><Icon name="camera" size={22}/></span><span className="mt-4 font-serif text-2xl">{category === "All items" ? "Your wardrobe is empty." : `No ${category.toLowerCase()} yet.`}</span><span className="mt-1 text-xs text-[#737a70]">Add a photo of something you own and AI will tag it.</span></button>}
-    <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">{wardrobeItems.map(({ id, name, category: cat, color, season, imageUrl: img, wornOften, favorite })=><button key={id} className="group text-left">
-      <div className="relative overflow-hidden rounded-[24px] bg-[#e9e5dc]"><img src={img} alt={name} className="aspect-[4/5] w-full object-cover transition duration-700 group-hover:scale-105"/><span role="button" tabIndex={0} aria-label={favorite ? `Remove ${name} from favorites` : `Add ${name} to favorites`} aria-pressed={!!favorite} onClick={(e)=>{e.stopPropagation();toggleFavorite(id,!favorite)}} onKeyDown={(e)=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();toggleFavorite(id,!favorite)}}} className={`absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-white/85 backdrop-blur ${favorite ? "text-[#c2410c] [&_path]:fill-current" : ""}`}><Icon name="heart" size={16}/></span>{wornOften&&<span className="absolute bottom-3 left-3 rounded-full bg-[#d8ff60] px-3 py-1.5 text-[10px] font-bold">Worn often</span>}</div>
-      <div className="px-1 pt-3"><div className="text-sm font-semibold">{name}</div><div className="mt-1 text-xs text-[#737a70]">{`${cat} · ${color} · ${season}`}</div></div>
-    </button>)}</div>
+    <div className="mt-8 space-y-6">{racks.map(([c, list]) => <Rack key={c} category={c} items={list} wrap={category !== "All items"} onFavorite={toggleFavorite} cleaning={cleaning}/>)}</div>
   </main>;
 }
+
+type CutResult = { upload: { cutoutPath: string; imageUrl: string } } | { rejected: true } | { failed: true };
 
 const scanLabels = ["Category", "Color", "Pattern", "Material", "Style", "Season"];
 
@@ -410,21 +428,54 @@ function AddItem({ done }: { done:()=>void }) {
   const [itemScan,setItemScan]=useState<Scan|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
+  // background removal runs in the browser after the scan: working -> done (cutout) or kept (original)
+  const [cut,setCut]=useState<"idle"|"working"|"done"|"kept">("idle");
+  const cutJob=useRef<Promise<CutResult>|null>(null);
+  const [original,setOriginal]=useState("");
+  useEffect(()=>{warmUpCutouts()},[]);
   const scanned=!!itemScan;
   const pick = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    setItemScan(null); setError(""); setBusy(true);
+    setItemScan(null); setError(""); setBusy(true); setCut("idle"); cutJob.current = null;
     setPreview((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(file); });
-    try { setItemScan(await api.scan(await shrinkPhoto(file))); }
+    try {
+      const photo = await shrinkPhoto(file);
+      const scan = await api.scan(photo);
+      setItemScan(scan); setOriginal(scan.imageUrl);
+      if (!scan.item.cutoutPath) {
+        setCut("working");
+        const job: Promise<CutResult> = makeCutout(photo, scan.box)
+          .then(async (png) => (png ? { upload: await api.uploadCutout(png) } : { rejected: true as const }))
+          .catch(() => ({ failed: true as const }));
+        cutJob.current = job;
+        job.then((r) => {
+          if (cutJob.current !== job) return;
+          if ("upload" in r) { setItemScan((sc) => sc && { ...sc, imageUrl: r.upload.imageUrl, item: { ...sc.item, cutoutPath: r.upload.cutoutPath } }); setCut("done"); }
+          else setCut("kept");
+        });
+      } else setCut("done");
+    }
     catch (err) { setError((err as Error).message); }
     finally { setBusy(false); }
+  };
+  const keepOriginal = () => {
+    cutJob.current = Promise.resolve({ rejected: true });
+    setItemScan((sc) => sc && { ...sc, imageUrl: original, item: { ...sc.item, cutoutPath: null } }); setCut("kept");
   };
   const save = async () => {
     if (!itemScan) return;
     setBusy(true); setError("");
-    try { await api.addItem(itemScan.item); refreshStats(); done(); }
+    try {
+      // wait for the cleaned-up photo if it's still being made
+      const r = cutJob.current ? await cutJob.current : null;
+      const item = r && "upload" in r ? { ...itemScan.item, cutoutPath: r.upload.cutoutPath } : itemScan.item;
+      const added = await api.addItem(item);
+      // a cutout that failed the quality check: keep the original and don't offer cleanup again
+      if (r && "rejected" in r) await api.setItemCutout(added.id, null).catch(() => undefined);
+      refreshStats(); done();
+    }
     catch (err) { setError((err as Error).message); setBusy(false); }
   };
   const attributes = itemScan?.attributes ?? scanLabels.map((k) => [k, ""] as [string, string]);
@@ -433,13 +484,17 @@ function AddItem({ done }: { done:()=>void }) {
     <div className="mt-10 grid gap-5 md:grid-cols-2">
       <label className={`group relative grid min-h-[460px] cursor-pointer place-items-center overflow-hidden rounded-[30px] border-2 border-dashed border-[#cbd0c7] bg-white p-8 ${busy ? "pointer-events-none" : ""}`}>
         <input type="file" accept="image/*" onChange={pick} className="sr-only" aria-label="Upload a photo of a clothing item"/>
-        {preview?<><img src={itemScan?.imageUrl || preview} alt="Uploaded clothing" className="absolute inset-0 h-full w-full object-cover"/><div className="absolute inset-0 bg-black/20"/><span className="relative rounded-full bg-[#d8ff60] px-4 py-2 text-xs font-bold">{busy && !scanned ? "Scanning..." : scanned ? "Scan complete" : "Tap to try another photo"}</span></>:<div><span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#eef5d4] transition-transform group-hover:scale-110"><Icon name="camera" size={25}/></span><div className="mt-5 font-serif text-2xl">Drop a photo here</div><div className="mt-2 text-xs text-[#737a70]">or tap to use camera</div></div>}
+        {preview?<>{cut==="done"
+          ? <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_0%,#fbfaf7_0%,#efece5_55%,#e5e0d6_100%)]"><img src={itemScan?.imageUrl} alt="Uploaded clothing with a clean background" className="absolute inset-8 h-[calc(100%-4rem)] w-[calc(100%-4rem)] object-contain drop-shadow-[0_14px_14px_rgba(40,35,25,0.22)]"/></div>
+          : <><img src={itemScan?.imageUrl || preview} alt="Uploaded clothing" className="absolute inset-0 h-full w-full object-cover"/><div className="absolute inset-0 bg-black/20"/></>}
+          <span className={`relative rounded-full bg-[#d8ff60] px-4 py-2 text-xs font-bold ${cut==="done"?"self-end":""}`}>{busy && !scanned ? "Scanning..." : cut==="working" ? "Removing background..." : cut==="done" ? "Background removed" : scanned ? "Scan complete" : "Tap to try another photo"}</span></>:<div><span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#eef5d4] transition-transform group-hover:scale-110"><Icon name="camera" size={25}/></span><div className="mt-5 font-serif text-2xl">Drop a photo here</div><div className="mt-2 text-xs text-[#737a70]">or tap to use camera</div></div>}
       </label>
       <div className="rounded-[30px] bg-[#20251f] p-7 text-white">
         <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#d8ff60] text-[#20251f]"><Icon name="sparkles" size={18}/></span><div><div className="text-sm font-semibold">AI item details</div><div className="text-[10px] text-white/45">{scanned?`Identified in ${itemScan.durationSec} seconds`:busy?"Reading your photo...":"Waiting for image"}</div></div></div>
         <div className="mt-8 space-y-3">{attributes.map(([k,v],i)=><div key={k} className={`flex justify-between border-b border-white/10 py-3 text-sm transition-all duration-500 ${scanned?"translate-y-0 opacity-100":"translate-y-2 opacity-25"}`} style={{transitionDelay:`${i*80}ms`}}><span className="text-white/45">{k}</span><span>{scanned?v:"—"}</span></div>)}</div>
         {error && <div className="mt-6"><ErrorNote light>{error}</ErrorNote></div>}
-        <Button onClick={save} className={`mt-8 w-full bg-[#d8ff60]! text-[#20251f]! ${!scanned||busy?"pointer-events-none opacity-30":""}`}><Icon name="plus" size={17}/> Add to wardrobe</Button>
+        {cut==="done" && <button onClick={keepOriginal} className="mt-6 text-xs text-white/60 underline underline-offset-4">Keep the original background instead</button>}
+        <Button onClick={save} className={`mt-8 w-full bg-[#d8ff60]! text-[#20251f]! ${!scanned||busy?"pointer-events-none opacity-30":""}`}><Icon name="plus" size={17}/> {busy && cut==="working" ? "Finishing the clean background..." : "Add to wardrobe"}</Button>
       </div>
     </div>
   </main>;
@@ -513,7 +568,8 @@ function Profile({ go, signOut }: { go:(s:Screen)=>void; signOut: () => void }) 
     try { setMe(await api.updateMe({ city })); refreshWeather(); }
     catch (e) { setError((e as Error).message); }
   };
-  const actions: Record<string, (() => void) | undefined> = { "Weather & location": changeCity, "Sign out": signOut };
+  const [bodyOpen,setBodyOpen]=useState(false);
+  const actions: Record<string, (() => void) | undefined> = { "Body & fit profile": ()=>setBodyOpen(true), "Weather & location": changeCity, "Sign out": signOut };
   return <main className="mx-auto max-w-4xl px-5 py-12 pb-36">
     <div className="flex flex-col items-center text-center"><Avatar className="h-28 w-28 rounded-full object-cover text-5xl ring-4 ring-white shadow-xl"/><div className="mt-5 font-serif text-4xl">{user.name}</div><div className="mt-1 text-xs text-[#737a70]">{`${user.city || "No city set"} · Style profile ${user.profileCompletion}% complete`}</div></div>
     <div className="mt-10 grid grid-cols-3 gap-3">{[[stats?.wardrobeCount ?? 0,"Wardrobe"],[stats?.savedLooks ?? 0,"Saved looks"],[stats?.daysStyled ?? 0,"Days styled"]].map(([a,b])=><div key={b} className="rounded-[22px] bg-white p-5 text-center"><div className="font-serif text-3xl">{a}</div><div className="text-[10px] uppercase tracking-wider text-[#737a70]">{b}</div></div>)}</div>
@@ -521,6 +577,7 @@ function Profile({ go, signOut }: { go:(s:Screen)=>void; signOut: () => void }) 
     <div className="mt-5 overflow-hidden rounded-[24px] bg-white">{([["Style preferences","sparkles"],["Body & fit profile","user"],["Weather & location","pin"],["App settings","settings"],["Sign out","arrow"]] as [string,IconName][]).map(([label,icon])=><button key={label} onClick={actions[label]} className="flex w-full items-center gap-4 border-b border-black/5 p-5 text-left last:border-0"><span className="grid h-9 w-9 place-items-center rounded-full bg-[#f1f0eb]"><Icon name={icon} size={17}/></span><span className="flex-1 text-sm font-semibold">{label}</span><Icon name="chevron" size={16}/></button>)}</div>
     {error && <div className="mt-5"><ErrorNote>{error}</ErrorNote></div>}
     <Button onClick={()=>go("generator")} className="mt-5 w-full bg-[#d8ff60]! text-[#20251f]!"><Icon name="sparkles"/> Style me now</Button>
+    {bodyOpen && <BodyProfileSheet me={me} onSaved={setMe} onClose={()=>setBodyOpen(false)}/>}
   </main>;
 }
 

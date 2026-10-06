@@ -17,6 +17,7 @@ export function createMockStylist(): StylistAI {
         style: "Relaxed · Minimal",
         season: "All season",
         isClothing: true,
+        box: [0, 0, 1000, 1000],
       }
     },
 
