@@ -58,9 +58,17 @@ const Env = z.object({
   // Pollinations' keyless endpoint now asks for payment after one image, so it is off by default
   FREE_IMAGES: z.enum(["pollinations", "none"]).default("none"),
   POLLINATIONS_URL: z.string().default("https://image.pollinations.ai/prompt/"),
-  // Optional Gemini image model for try-ons with the actual pieces and face photo, e.g.
-  // gemini-2.5-flash-image. Off by default: only set it if Google gives your key a free quota for it.
+  // Optional Gemini image model, e.g. gemini-nano-banana-2.1: dresses the person in the actual pieces
+  // and face photo far better than FLUX klein. PAID (about $0.034 a picture, no free tier), so it needs
+  // GEMINI_IMAGE_API_KEY from a separate Google Cloud project with billing (Google AI Pro includes $10 a
+  // month of credit). Keep GEMINI_API_KEY on a project without billing so text stays free. When it
+  // fails or hits its quota, pictures fall back to Cloudflare.
   GEMINI_IMAGE_MODEL: z.string().optional(),
+  // defaults to GEMINI_API_KEY
+  GEMINI_IMAGE_API_KEY: z.string().optional(),
+  // "tryons": only "see it on you" pictures use the Gemini image model (studio photos stay on
+  // Cloudflare); "all": every picture
+  GEMINI_IMAGE_USE: z.enum(["tryons", "all"]).default("tryons"),
 
   // "open-meteo" (free, no key) or "mock"
   WEATHER_PROVIDER: z.enum(["open-meteo", "mock"]).default("open-meteo"),

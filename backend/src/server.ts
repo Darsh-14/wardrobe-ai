@@ -50,8 +50,9 @@ const deps: Deps = {
     replicateToken: config.REPLICATE_API_TOKEN,
     replicateImageModel: config.REPLICATE_IMAGE_MODEL,
     replicateBgModel: config.REPLICATE_BG_REMOVAL_MODEL,
-    geminiKey: config.GEMINI_API_KEY,
+    geminiKey: config.GEMINI_IMAGE_API_KEY || config.GEMINI_API_KEY,
     geminiImageModel: config.GEMINI_IMAGE_MODEL,
+    geminiImageUse: config.GEMINI_IMAGE_USE,
     cloudflare: config.CLOUDFLARE_ACCOUNT_ID && config.CLOUDFLARE_API_TOKEN
       ? { accountId: config.CLOUDFLARE_ACCOUNT_ID, token: config.CLOUDFLARE_API_TOKEN, model: config.CLOUDFLARE_IMAGE_MODEL, editModel: config.CLOUDFLARE_EDIT_MODEL, tryOnModel: config.CLOUDFLARE_TRYON_MODEL }
       : undefined,
