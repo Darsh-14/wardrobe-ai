@@ -61,7 +61,12 @@ it("asks for catalogue-style studio photos that match the samples", () => {
   const base = { name: "Light blue wash jeans", color: "Light blue", material: "Denim", pattern: "Solid", subcategory: "Straight jeans" }
   expect(studioPrompt({ ...base, category: "Bottoms" })).toMatch(/^Ghost mannequin product photo of Light blue Denim Straight jeans .*full and rounded as if worn/)
   expect(studioPrompt({ ...base, category: "Tops" })).toMatch(/^Ghost mannequin product photo/)
-  expect(studioPrompt({ ...base, category: "Dresses" })).toContain("dress form mannequin")
+  expect(studioPrompt({ ...base, category: "Dresses" })).toContain("full and rounded as if worn")
+  // every kind of item comes out three-dimensional, not flat
+  for (const category of ["Tops", "Outerwear", "Dresses", "Bottoms", "Shoes", "Accessories"] as const) {
+    expect(studioPrompt({ ...base, category })).toContain("three-dimensional with real volume")
+    expect(studioEditPrompt({ ...base, category })).toContain("three-dimensional with real volume")
+  }
   expect(studioPrompt({ ...base, pattern: "Floral", category: "Tops" })).toContain("floral Straight jeans")
 })
 
