@@ -18,6 +18,10 @@ import type { ImageAI, ImageBytes, TryOnRequest } from "./types.js"
 
 type Provider = { name: string; generate(req: TryOnRequest): Promise<ImageBytes> }
 
+/** The free plan's daily picture quota is used up: nothing more can be drawn until it resets */
+export class QuotaError extends Error {}
+export const QUOTA_MESSAGE = "Today's free picture quota is used up. It resets at 00:00 UTC (5:30 AM in India)."
+
 export type ImageOptions = {
   replicateToken?: string
   replicateImageModel: string
@@ -49,15 +53,19 @@ export function createImageAI(opts: ImageOptions): ImageAI {
     enabled: providers.length > 0,
     usesReferences: !!((opts.geminiKey && opts.geminiImageModel) || opts.cloudflare),
     async generate(req) {
+      const errors: Error[] = []
       for (const p of providers) {
         try {
           return await p.generate(req)
         } catch (err) {
           console.warn(`[images] ${p.name} failed: ${(err as Error).message}`)
+          errors.push(err as Error)
         }
       }
-      if (providers.length) throw new Error("No image provider could draw this picture")
-      return null
+      if (!providers.length) return null
+      // keep the reason, so the look (and the app) can say why there is no picture
+      if (errors.some((e) => e instanceof QuotaError)) throw new QuotaError(QUOTA_MESSAGE)
+      throw new Error(`No image provider could draw this picture (${errors.map((e) => e.message).join("; ")})`)
     },
     removeBackground: async (imageUrl) => (replicate ? replicate(opts.replicateBgModel, { image: imageUrl }) : null),
   }
@@ -111,8 +119,11 @@ type CloudflareOptions = {
 
 function cloudflare(cf: CloudflareOptions, http: typeof fetch): Provider {
   let queue: Promise<unknown> = Promise.resolve()
+  // the free plan's 10,000 neurons a day are shared by every model and reset at 00:00 UTC
+  let quotaUntil = 0
   const url = (model: string) => `https://api.cloudflare.com/client/v4/accounts/${cf.accountId}/ai/run/${model}`
   const once = async (req: TryOnRequest, editModel: string) => {
+    if (Date.now() < quotaUntil) throw new QuotaError(QUOTA_MESSAGE)
     // FLUX.2 klein takes up to 4 reference photos; the face goes last
     const refs = [...(req.garments ?? []).slice(0, req.face ? 3 : 4), ...(req.face ? [req.face] : [])]
     let res: Response
@@ -133,9 +144,18 @@ function cloudflare(cf: CloudflareOptions, http: typeof fetch): Provider {
         signal: AbortSignal.timeout(90_000),
       })
     }
-    const body = (await res.json().catch(() => null)) as { result?: { image?: string }; errors?: { message?: string }[] } | null
+    const body = (await res.json().catch(() => null)) as { result?: { image?: string }; errors?: { code?: number; message?: string }[] } | null
     const image = body?.result?.image
-    if (!res.ok || !image) throw new Error(`HTTP ${res.status} ${body?.errors?.map((e) => e.message).join("; ") ?? ""}`)
+    if (!res.ok || !image) {
+      const message = `HTTP ${res.status} ${body?.errors?.map((e) => e.message).join("; ") ?? ""}`
+      // 4006: "you have used up your daily free allocation of 10,000 neurons"
+      if (body?.errors?.some((e) => e.code === 4006 || /daily free allocation|neurons/i.test(e.message ?? ""))) {
+        quotaUntil = new Date().setUTCHours(24, 0, 0, 0)
+        console.warn(`[images] cloudflare: daily free quota used up until ${new Date(quotaUntil).toISOString()} (${message})`)
+        throw new QuotaError(QUOTA_MESSAGE)
+      }
+      throw new Error(message)
+    }
     const bytes = new Uint8Array(Buffer.from(image, "base64"))
     return { bytes, contentType: bytes[0] === 0x89 ? "image/png" : "image/jpeg" }
   }
@@ -143,10 +163,13 @@ function cloudflare(cf: CloudflareOptions, http: typeof fetch): Provider {
     name: "cloudflare",
     // one at a time keeps a burst (a new wardrobe) inside the free plan's rate limit
     generate(req) {
-      const tryOn = !!cf.tryOnModel && req.mode !== "studio" && !!(req.garments?.length || req.face)
+      // redraws use the standard model: the better one costs about 8x more of the daily quota
+      const tryOn = !!cf.tryOnModel && req.mode !== "studio" && !req.redraw && !!(req.garments?.length || req.face)
       const run = queue.then(() =>
         tryOn
           ? once(req, cf.tryOnModel!).catch((err: Error) => {
+              // both models share the quota, so the fallback would fail too
+              if (err instanceof QuotaError) throw err
               console.warn(`[images] cloudflare ${cf.tryOnModel} failed, using ${cf.editModel}: ${err.message}`)
               return once(req, cf.editModel)
             })

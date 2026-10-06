@@ -1,5 +1,6 @@
 // Shared reads and row -> API shape mappers. API shapes match gen ai/src/types.ts.
 import type { ItemForAI, ProfileForAI } from "./ai/types.js"
+import { QUOTA_MESSAGE } from "./ai/images.js"
 import type { Tx } from "./db.js"
 import type { Storage } from "./storage.js"
 
@@ -115,8 +116,15 @@ export type LookRow = {
   status: "pending" | "ready" | "failed"
   visualization_path: string | null
   visualization_status: "pending" | "ready" | "failed"
+  error?: string | null
   saved_at: Date | null
   created_at: Date
+}
+
+function pictureError(error: string | null | undefined) {
+  if (error?.startsWith(QUOTA_MESSAGE)) return QUOTA_MESSAGE
+  if (error === "image generation not configured") return "Pictures aren't set up on this server yet."
+  return "The picture couldn't be made this time. Try again in a little while."
 }
 
 export function timeOfDay(d: Date | null, timeZone = "Asia/Kolkata") {
@@ -161,6 +169,8 @@ export async function lookToApi(tx: Tx, storage: Storage, look: LookRow) {
     // extras
     status: look.status,
     visualizationStatus: look.visualization_status,
+    // why there's no picture, in words for the user
+    visualizationError: look.visualization_status === "failed" ? pictureError(look.error) : null,
     saved: !!look.saved_at,
     occasion: look.occasion,
     style: look.style,

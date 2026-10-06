@@ -111,15 +111,15 @@ async function lookAt(stylist: Pick<StylistAI, "checkTryOn">, image: ImageBytes,
 }
 
 /**
- * Draws the try-on picture, checks it shows the whole person in every piece, and redraws (up to
- * `attempts` pictures in all) when something is cut off or left out, e.g. trousers under a long kurta.
+ * Draws the try-on picture, checks it shows the whole person in every piece, and redraws once
+ * (`attempts` pictures in all) when something is cut off or left out, e.g. trousers under a long kurta.
  * Each redraw names what was missing and puts those pieces' photos first. Returns the best picture.
  */
 export async function drawTryOn(
   images: Pick<ImageAI, "generate">,
   stylist: Pick<StylistAI, "checkTryOn">,
   req: { prompt: string; labels: string[]; garments?: ImageBytes[]; face?: ImageBytes | null; width: number; height: number },
-  attempts = 3,
+  attempts = 2,
 ): Promise<ImageBytes | null> {
   let best: { image: ImageBytes; faults: number } | null = null
   let order = req.labels.map((_, i) => i)
@@ -130,6 +130,7 @@ export async function drawTryOn(
       image = await images.generate({
         ...req,
         prompt: `${req.prompt} ${fix}`.trim(),
+        redraw: i > 0,
         labels: order.map((j) => req.labels[j]),
         garments: req.garments && order.map((j) => req.garments![j]),
       })
