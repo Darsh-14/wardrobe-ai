@@ -73,13 +73,15 @@ function Piece({ item, kind, onFavorite, onRedo, cleaning }: { item: WardrobeIte
   const { id, name, category, color, season, imageUrl, studioUrl, wornOften, favorite, photo } = item;
   // the studio photo by default; a tap on "My photo" shows the user's own picture
   const [own, setOwn] = useState(false);
-  const showStudio = !!studioUrl && !own;
+  // a studio photo that won't load (e.g. its signed link expired) falls back to the user's photo
+  const [broken, setBroken] = useState<string | null>(null);
+  const showStudio = !!studioUrl && !own && broken !== studioUrl;
   return <div className="group w-[158px] shrink-0 sm:w-[212px]">
     {kind !== "shelf" && <svg viewBox="0 0 20 22" aria-hidden="true" className="relative z-[1] mx-auto -mb-1 block h-[22px] w-5"><path d="M10 22 V12 a5 5 0 1 0 -5 -5" fill="none" stroke="url(#hook)" strokeWidth="2.4" strokeLinecap="round" /><defs><linearGradient id="hook" x1="0" x2="1"><stop offset="0" stopColor="#c9cdcf" /><stop offset=".5" stopColor="#7d8285" /><stop offset="1" stopColor="#b5babd" /></linearGradient></defs></svg>}
     <Tilt className={`aspect-[4/5] overflow-hidden rounded-[22px] ${STUDIO_BG} shadow-[0_2px_4px_rgba(30,40,45,0.08),0_18px_36px_-8px_rgba(30,40,45,0.28)] ring-1 ring-white/60`}>
       {!showStudio && photo === "cutout" && <Floor wide={kind === "shelf"} />}
       {showStudio
-        ? <img src={studioUrl!} alt={name} loading="lazy" className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" />
+        ? <img src={studioUrl!} alt={name} loading="lazy" onError={() => setBroken(studioUrl!)} className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" />
         : photo === "cutout"
           ? <>{kind !== "shelf" && <Hanger kind={kind} />}<img src={imageUrl} alt={name} loading="lazy" className={`absolute inset-x-5 ${kind === "shelf" ? "bottom-8 top-8 object-bottom" : "bottom-5 top-10 object-top"} h-auto max-h-full w-[calc(100%-2.5rem)] object-contain drop-shadow-[8px_18px_14px_rgba(30,40,45,0.30)] transition duration-700 group-hover:scale-[1.03]`} style={{ height: kind === "shelf" ? "calc(100% - 4rem)" : "calc(100% - 3.75rem)" }} /></>
           : <img src={imageUrl} alt={name} loading="lazy" className="h-full w-full object-cover" />}

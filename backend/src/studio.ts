@@ -61,11 +61,16 @@ export function ensureStudioPhotos(deps: Deps, userId: string, rows: ItemRow[], 
       try {
         // from the user's own photo when the provider can edit from it, so it's the same garment
         const photo = deps.images.usesReferences ? await deps.storage.download("wardrobe", row.image_path) : null
-        const image = await deps.images.generate(
-          photo
-            ? { prompt: studioEditPrompt(row), garments: [photo], mode: "studio", width: 832, height: 1040 }
-            : { prompt: studioPrompt(row) },
-        )
+        const fromText = () => deps.images.generate({ prompt: studioPrompt(row) })
+        // when editing from the photo fails, a picture drawn from the description beats none at all
+        const image = photo
+          ? await deps.images
+              .generate({ prompt: studioEditPrompt(row), garments: [photo], mode: "studio", width: 832, height: 1040 })
+              .catch((err: Error) => {
+                console.warn(`[studio ${row.id}] editing from the photo failed, drawing from the description: ${err.message}`)
+                return fromText()
+              })
+          : await fromText()
         if (!image) return
         const path = `${userId}/${row.id}-studio-${Date.now()}.jpg`
         await deps.storage.upload("wardrobe", path, image.bytes, image.contentType)
