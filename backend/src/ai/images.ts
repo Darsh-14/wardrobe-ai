@@ -215,12 +215,15 @@ const base64 = (b: Uint8Array) => Buffer.from(b).toString("base64")
 export const MAX_REFERENCE_SIDE = 504
 
 /** Shrinks a reference photo to fit inside MAX_REFERENCE_SIDE; cutouts keep their transparency */
-export async function fitReference(img: ImageBytes): Promise<ImageBytes> {
+export const fitReference = (img: ImageBytes) => shrinkImage(img, MAX_REFERENCE_SIDE)
+
+/** Shrinks a picture to fit inside `max` pixels a side; pictures with transparency stay PNG */
+export async function shrinkImage(img: ImageBytes, max: number): Promise<ImageBytes> {
   try {
     const pic = sharp(img.bytes).rotate()
     const meta = await pic.metadata()
-    if (meta.width && meta.height && Math.max(meta.width, meta.height) <= MAX_REFERENCE_SIDE) return img
-    const resized = pic.resize(MAX_REFERENCE_SIDE, MAX_REFERENCE_SIDE, { fit: "inside", withoutEnlargement: true })
+    if (meta.width && meta.height && Math.max(meta.width, meta.height) <= max) return img
+    const resized = pic.resize(max, max, { fit: "inside", withoutEnlargement: true })
     return meta.hasAlpha
       ? { bytes: new Uint8Array(await resized.png().toBuffer()), contentType: "image/png" }
       : { bytes: new Uint8Array(await resized.jpeg({ quality: 90 }).toBuffer()), contentType: "image/jpeg" }

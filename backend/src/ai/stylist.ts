@@ -7,6 +7,7 @@ import {
   ScanResult,
   ShoppingResult,
   TrendsResult,
+  TryOnCheck,
   toCategory,
   type ItemForAI,
   type ProfileForAI,
@@ -103,5 +104,26 @@ Answer with what they already own for this (ids from the wardrobe) and the one g
 Keep them practical for everyday wardrobes and the local climate.` },
         "light",
       ),
+
+    checkTryOn: async ({ image, pieces }) => {
+      const r = await ask(
+        TryOnCheck,
+        {
+          image,
+          text: `This picture was generated to show one person wearing all of these pieces together:
+${pieces.map((p, i) => `${i + 1}. ${p}`).join("\n")}
+
+Look carefully at the picture. Is the whole person in frame from the top of the head to both feet?
+Which listed pieces can't be clearly seen being worn, for example because the picture is cut off above them,
+another garment covers them completely, or a different garment was drawn instead? Long tops that cover the
+upper part of trousers are fine as long as the trousers are visible below them.`,
+        },
+        "light",
+      )
+      // map each answer back to the listed name, even when it's shortened ("Blue Denim Jeans" for "bottoms: Blue Denim Jeans")
+      const same = (a: string, b: string) => a.toLowerCase().includes(b.toLowerCase().trim())
+      const missing = pieces.filter((p) => r.missing.some((m) => m.trim() && (same(p, m) || same(m, p))))
+      return { fullBody: r.fullBody, missing }
+    },
   }
 }
