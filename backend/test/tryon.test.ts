@@ -128,7 +128,7 @@ it("edits from the user's own photos with FLUX.2 klein", async () => {
   const face = { bytes: new Uint8Array([2]), contentType: "image/png" }
   await cf.generate({ prompt: "A man at the office.", garments: [jeans, jeans], face })
   expect(forms[1].form.get("prompt")).toBe(
-    "A man at the office. Images 0 to 1 are the user's own clothes. Dress the person in exactly all of these pieces together, every one clearly visible, keeping their colours, wash, prints, details and cut. Image 2 is the person's face: the person must look like them.",
+    "A man at the office. Images 0 to 1 are the user's own clothes. Dress the person in exactly all of these pieces together, every one clearly visible, keeping their colours, wash, prints, details and cut. Copy only the garments themselves, worn the right way round: leave out hangers, price tags, labels, mannequins and the photos' backgrounds, and keep back details such as back pockets at the back. Image 2 is the person's face: the person must look like them.",
   )
   expect((forms[1].form.get("input_image_2") as Blob).type).toBe("image/png")
 
@@ -329,4 +329,78 @@ it("picks the closest Gemini picture shape", () => {
   expect(aspectRatio(832, 1040)).toBe("3:4")
   expect(aspectRatio(768, 1024)).toBe("3:4")
   expect(aspectRatio(1024, 1024)).toBe("1:1")
+})
+
+it("draws try-ons on deAPI (start a job, poll it, download it), studio photos on Cloudflare", async () => {
+  const calls: string[] = []
+  let form: FormData | undefined
+  let polls = 0
+  const ai = createImageAI({
+    replicateImageModel: "",
+    replicateBgModel: "",
+    freeImages: "none",
+    pollinationsUrl: "",
+    deapi: { token: "de-tok", model: "Flux_2_Klein_4B_BF16", use: "tryons", pollMs: 1 },
+    cloudflare: { accountId: "acc", token: "tok", model: "m1", editModel: "klein-4b" },
+    fetch: (async (url: string, init?: RequestInit) => {
+      calls.push(url.replace(/^https:\/\/[^/]+/, ""))
+      if (url.endsWith("/images/edits")) {
+        form = init?.body as FormData
+        expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer de-tok")
+        return Response.json({ data: { request_id: "job-1" } })
+      }
+      if (url.includes("/jobs/job-1")) {
+        return Response.json({ data: ++polls < 2 ? { status: "processing" } : { status: "done", result_url: "https://cdn.test/out.png" } })
+      }
+      if (url === "https://cdn.test/out.png") return new Response(new Uint8Array([0x89, 9]), { headers: { "content-type": "image/png" } })
+      return Response.json({ result: { image: Buffer.from([0xff]).toString("base64") } })
+    }) as typeof fetch,
+  })
+  const kurta = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
+  const jeans = { bytes: new Uint8Array([2]), contentType: "image/jpeg" }
+  const out = await ai.generate({ prompt: "A woman.", garments: [kurta, jeans], labels: ["top: Yellow Kurta", "bottoms: Brown Jeans"], width: 1024, height: 1536 })
+  expect(out).toEqual({ bytes: new Uint8Array([0x89, 9]), contentType: "image/png" })
+  expect(calls).toEqual(["/api/v2/images/edits", "/api/v2/jobs/job-1", "/api/v2/jobs/job-1", "/out.png"])
+  expect(form?.get("model")).toBe("Flux_2_Klein_4B_BF16")
+  expect(form?.get("width")).toBe("1024")
+  expect(form?.get("height")).toBe("1536")
+  expect(form?.getAll("images[]")).toHaveLength(2)
+  expect(form?.get("prompt")).toContain("Image 1 is the user's bottoms: Brown Jeans.")
+
+  calls.length = 0
+  await ai.generate({ prompt: "studio", garments: [kurta], mode: "studio", width: 832, height: 1040 })
+  expect(calls).toEqual(["/client/v4/accounts/acc/ai/run/klein-4b"])
+})
+
+it("falls back to Cloudflare when deAPI has no credit left, and stops asking it for a while", async () => {
+  const calls: string[] = []
+  const ai = createImageAI({
+    replicateImageModel: "",
+    replicateBgModel: "",
+    freeImages: "none",
+    pollinationsUrl: "",
+    deapi: { token: "de-tok", model: "Flux_2_Klein_4B_BF16", use: "tryons", pollMs: 1 },
+    cloudflare: { accountId: "acc", token: "tok", model: "m1", editModel: "klein-4b" },
+    fetch: (async (url: string) => {
+      calls.push(url.includes("deapi") ? "deapi" : "cloudflare")
+      return url.includes("deapi")
+        ? Response.json({ message: "Insufficient balance" }, { status: 402 })
+        : Response.json({ result: { image: Buffer.from([0xff]).toString("base64") } })
+    }) as typeof fetch,
+  })
+  const shirt = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
+  expect(await ai.generate({ prompt: "try-on", garments: [shirt] })).not.toBeNull()
+  expect(calls).toEqual(["deapi", "cloudflare"])
+  await ai.generate({ prompt: "try-on again", garments: [shirt] })
+  expect(calls).toEqual(["deapi", "cloudflare", "cloudflare"])
+})
+
+it("redraws a picture with a shop tag or a pasted-on pocket", async () => {
+  const asked: string[] = []
+  const images = { generate: async (req: { prompt: string }) => (asked.push(req.prompt), { bytes: new Uint8Array([asked.length]), contentType: "image/jpeg" }) }
+  const answers = [{ fullBody: true, missing: [], strayBits: true }, { fullBody: true, missing: [], strayBits: false }]
+  const stylist = { checkTryOn: async () => answers.shift()! }
+  const image = await drawTryOn(images, stylist, { prompt: "A woman.", labels: ["top: Kurta"], width: 1024, height: 1536 })
+  expect(image?.bytes).toEqual(new Uint8Array([2]))
+  expect(asked[1]).toContain("no price tags, labels or hangers")
 })

@@ -76,6 +76,10 @@ export const TryOnCheck = z.object({
   missing: z
     .array(z.string())
     .describe("each listed piece that is not clearly visible being worn (cut off, hidden, left out or replaced by a different garment), copied exactly from the list; empty when every piece is visible"),
+  strayBits: z
+    .boolean()
+    .optional()
+    .describe("true if something copied from a product photo isn't worn naturally: a hanging price tag or label, a hanger, a mannequin, or a pocket or patch pasted onto the wrong garment or place"),
 })
 export type TryOnCheck = z.infer<typeof TryOnCheck>
 

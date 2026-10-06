@@ -55,6 +55,14 @@ const Env = z.object({
   // It costs about 8x more of the free daily quota (about 6 pictures a day); when the quota runs out,
   // try-ons fall back to CLOUDFLARE_EDIT_MODEL.
   CLOUDFLARE_TRYON_MODEL: z.string().optional(),
+  // Optional deAPI (deapi.ai) token: try-on pictures with the same FLUX.2 klein model as Cloudflare
+  // but with full-detail reference photos, so prints and details come through. Paid from prepaid
+  // credit ($5 free on sign-up, about $0.007 a try-on, no card); falls back to Cloudflare when the
+  // credit runs out. Runs on a decentralized network of rented GPUs.
+  DEAPI_API_KEY: z.string().optional(),
+  DEAPI_EDIT_MODEL: z.string().default("Flux_2_Klein_4B_BF16"),
+  // "tryons": only "see it on you" pictures; "all": studio photos too
+  DEAPI_USE: z.enum(["tryons", "all"]).default("tryons"),
   // Pollinations' keyless endpoint now asks for payment after one image, so it is off by default
   FREE_IMAGES: z.enum(["pollinations", "none"]).default("none"),
   POLLINATIONS_URL: z.string().default("https://image.pollinations.ai/prompt/"),
