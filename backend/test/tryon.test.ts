@@ -1,6 +1,6 @@
 import sharp from "sharp"
-import { expect, it } from "vitest"
-import { createImageAI, fitReference, QUOTA_MESSAGE, QuotaError } from "../src/ai/images.js"
+import { expect, it, vi } from "vitest"
+import { aspectRatio, createImageAI, fitReference, QUOTA_MESSAGE, QuotaError } from "../src/ai/images.js"
 import type { ItemRow, LookRow } from "../src/queries.js"
 import { createStylist, type Ask } from "../src/ai/stylist.js"
 import { drawTryOn, garmentLabels, tryOnPrompt } from "../src/tryon.js"
@@ -283,4 +283,50 @@ it("redraws with the standard model, and other failures keep their reason", asyn
   const shirt = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
   await expect(cf.generate({ prompt: "again", garments: [shirt], redraw: true })).rejects.toThrow(/No image provider could draw this picture \(HTTP 400 bad input\)/)
   expect(urls).toEqual(["klein-4b"])
+})
+
+it("draws try-ons with the paid Gemini image model, and keeps studio photos on Cloudflare", async () => {
+  const gemini: { url: string; body: { contents: { parts: { inlineData?: unknown; text?: string }[] }[]; generationConfig?: { imageConfig?: unknown } } }[] = []
+  vi.stubGlobal("fetch", async (url: string | URL | Request, init?: RequestInit) => {
+    gemini.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+    return Response.json({ candidates: [{ content: { parts: [{ inlineData: { data: Buffer.from([0x89, 2]).toString("base64"), mimeType: "image/png" } }] } }] })
+  })
+  try {
+    const cloudflare: string[] = []
+    const ai = createImageAI({
+      replicateImageModel: "",
+      replicateBgModel: "",
+      freeImages: "none",
+      pollinationsUrl: "",
+      geminiKey: "paid-key",
+      geminiImageModel: "gemini-nano-banana-2.1",
+      cloudflare: { accountId: "acc", token: "tok", model: "m1", editModel: "klein-4b" },
+      fetch: (async (url: string) => {
+        cloudflare.push(url.split("/").pop()!)
+        return Response.json({ result: { image: Buffer.from([0xff]).toString("base64") } })
+      }) as typeof fetch,
+    })
+    const shirt = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
+    const tryOn = await ai.generate({ prompt: "A woman.", garments: [shirt], labels: ["top: Yellow Kurta"], width: 1024, height: 1536 })
+    expect(tryOn?.contentType).toBe("image/png")
+    expect(gemini).toHaveLength(1)
+    expect(gemini[0].url).toContain("gemini-nano-banana-2.1:generateContent")
+    expect(gemini[0].body.generationConfig?.imageConfig).toEqual({ aspectRatio: "2:3", imageSize: "1K" })
+    expect(gemini[0].body.contents[0].parts[0].inlineData).toBeTruthy()
+    expect(gemini[0].body.contents[0].parts.at(-1)?.text).toContain("Image 0 is the user's top: Yellow Kurta.")
+    expect(cloudflare).toEqual([])
+
+    await ai.generate({ prompt: "studio", garments: [shirt], mode: "studio", width: 832, height: 1040 })
+    expect(gemini).toHaveLength(1)
+    expect(cloudflare).toEqual(["klein-4b"])
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
+it("picks the closest Gemini picture shape", () => {
+  expect(aspectRatio(1024, 1536)).toBe("2:3")
+  expect(aspectRatio(832, 1040)).toBe("3:4")
+  expect(aspectRatio(768, 1024)).toBe("3:4")
+  expect(aspectRatio(1024, 1024)).toBe("1:1")
 })

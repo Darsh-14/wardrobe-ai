@@ -16,7 +16,12 @@ import { GoogleGenAI, type Part } from "@google/genai"
 import sharp from "sharp"
 import type { ImageAI, ImageBytes, TryOnRequest } from "./types.js"
 
-type Provider = { name: string; generate(req: TryOnRequest): Promise<ImageBytes> }
+type Provider = {
+  name: string
+  /** false: skip this provider for that picture (e.g. a paid one kept for try-ons) */
+  accepts?(req: TryOnRequest): boolean
+  generate(req: TryOnRequest): Promise<ImageBytes>
+}
 
 /** The free plan's daily picture quota is used up: nothing more can be drawn until it resets */
 export class QuotaError extends Error {}
@@ -28,6 +33,8 @@ export type ImageOptions = {
   replicateBgModel: string
   geminiKey?: string
   geminiImageModel?: string
+  /** "tryons": the Gemini image model only draws "see it on you" pictures; "all": every picture */
+  geminiImageUse?: "tryons" | "all"
   cloudflare?: CloudflareOptions
   freeImages: "pollinations" | "none"
   pollinationsUrl: string
@@ -37,7 +44,7 @@ export type ImageOptions = {
 export function createImageAI(opts: ImageOptions): ImageAI {
   const http = opts.fetch ?? fetch
   const providers: Provider[] = []
-  if (opts.geminiKey && opts.geminiImageModel) providers.push(gemini(opts.geminiKey, opts.geminiImageModel))
+  if (opts.geminiKey && opts.geminiImageModel) providers.push(gemini(opts.geminiKey, opts.geminiImageModel, opts.geminiImageUse ?? "tryons"))
   const replicate = opts.replicateToken ? replicateRunner(opts.replicateToken, http) : null
   if (replicate) {
     providers.push({
@@ -55,6 +62,7 @@ export function createImageAI(opts: ImageOptions): ImageAI {
     async generate(req) {
       const errors: Error[] = []
       for (const p of providers) {
+        if (p.accepts && !p.accepts(req)) continue
         try {
           return await p.generate(req)
         } catch (err) {
@@ -71,10 +79,22 @@ export function createImageAI(opts: ImageOptions): ImageAI {
   }
 }
 
-function gemini(apiKey: string, model: string): Provider {
+// Gemini's picture shapes, for the requested width/height
+const ASPECTS = [["1:1", 1], ["2:3", 2 / 3], ["3:2", 3 / 2], ["3:4", 3 / 4], ["4:3", 4 / 3], ["9:16", 9 / 16], ["16:9", 16 / 9]] as const
+export function aspectRatio(width: number, height: number) {
+  const r = width / height
+  return ASPECTS.reduce((a, b) => (Math.abs(b[1] - r) < Math.abs(a[1] - r) ? b : a))[0]
+}
+
+// A try-on: the person wearing the user's own pieces (not a studio photo or a text-only picture)
+const isTryOn = (req: TryOnRequest) => req.mode !== "studio" && !!(req.garments?.length || req.face)
+
+function gemini(apiKey: string, model: string, use: "tryons" | "all"): Provider {
   const client = new GoogleGenAI({ apiKey })
   return {
     name: `gemini ${model}`,
+    // paid per picture: by default spent where it makes the biggest difference
+    accepts: (req) => use === "all" || isTryOn(req),
     async generate(req) {
       const parts: Part[] = []
       for (const g of req.garments ?? []) parts.push({ inlineData: { data: base64(g.bytes), mimeType: g.contentType } })
@@ -83,7 +103,10 @@ function gemini(apiKey: string, model: string): Provider {
       const res = await client.models.generateContent({
         model,
         contents: [{ role: "user", parts }],
-        config: { responseModalities: ["IMAGE", "TEXT"] },
+        config: {
+          responseModalities: ["IMAGE", "TEXT"],
+          ...(req.width && req.height ? { imageConfig: { aspectRatio: aspectRatio(req.width, req.height), imageSize: "1K" } } : {}),
+        },
       })
       const img = res.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData
       if (!img?.data) throw new Error(`no image returned (${res.candidates?.[0]?.finishReason ?? "blocked"})`)
