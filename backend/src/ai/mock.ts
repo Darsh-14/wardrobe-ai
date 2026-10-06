@@ -72,6 +72,11 @@ export function createMockStylist(): StylistAI {
       }
     },
 
+    // the mock image provider draws nothing worth checking
+    async checkTryOn() {
+      return { fullBody: true, missing: [] }
+    },
+
     async cityTrends() {
       return {
         trends: [

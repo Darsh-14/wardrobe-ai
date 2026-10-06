@@ -2,7 +2,8 @@ import sharp from "sharp"
 import { expect, it } from "vitest"
 import { createImageAI, fitReference } from "../src/ai/images.js"
 import type { ItemRow, LookRow } from "../src/queries.js"
-import { garmentLabels, tryOnPrompt } from "../src/tryon.js"
+import { createStylist, type Ask } from "../src/ai/stylist.js"
+import { drawTryOn, garmentLabels, tryOnPrompt } from "../src/tryon.js"
 import { studioEditPrompt, studioPrompt } from "../src/studio.js"
 
 const look = {
@@ -192,4 +193,48 @@ it("asks to keep the same garment and fill in hidden parts", () => {
   expect(p).toContain("Image 0 is a phone photo of the user's Light blue wash jeans.")
   expect(p).toContain("full and rounded as if worn")
   expect(p).toContain("complete it so it matches the visible part")
+})
+
+it("redraws a try-on picture that leaves out the jeans, putting the jeans first", async () => {
+  const pieces = ["top: Yellow Cotton Kurta", "bottoms: Blue Denim Jeans"]
+  const kurta = { bytes: new Uint8Array([1]), contentType: "image/jpeg" }
+  const jeans = { bytes: new Uint8Array([2]), contentType: "image/jpeg" }
+  const asked: { prompt: string; labels?: string[]; garments?: unknown[] }[] = []
+  const images = {
+    generate: async (req: { prompt: string; labels?: string[]; garments?: unknown[] }) => {
+      asked.push(req)
+      return { bytes: new Uint8Array([asked.length]), contentType: "image/jpeg" }
+    },
+  }
+  // the first picture is cut off at the thighs, the second is right
+  const answers = [{ fullBody: false, missing: ["bottoms: Blue Denim Jeans"] }, { fullBody: true, missing: [] }]
+  const stylist = { checkTryOn: async () => answers.shift()! }
+  const image = await drawTryOn(images, stylist, { prompt: "A woman.", labels: pieces, garments: [kurta, jeans], width: 1024, height: 1536 })
+  expect(image?.bytes).toEqual(new Uint8Array([2]))
+  expect(asked).toHaveLength(2)
+  expect(asked[1].labels).toEqual(["bottoms: Blue Denim Jeans", "top: Yellow Cotton Kurta"])
+  expect(asked[1].garments).toEqual([jeans, kurta])
+  expect(asked[1].prompt).toContain("visibly wearing bottoms: Blue Denim Jeans")
+  expect(asked[1].prompt).toContain("Zoom out")
+})
+
+it("keeps the best picture, and doesn't redraw when it can't check", async () => {
+  let n = 0
+  const images = { generate: async () => ({ bytes: new Uint8Array([++n]), contentType: "image/jpeg" }) }
+  // always missing something: three pictures, the one with the fewest faults wins
+  const faults = [{ fullBody: false, missing: ["a", "b"] }, { fullBody: true, missing: ["b"] }, { fullBody: false, missing: ["b"] }]
+  const picky = { checkTryOn: async () => faults.shift()! }
+  expect((await drawTryOn(images, picky, { prompt: "x", labels: ["a", "b"], width: 1, height: 1 }))?.bytes).toEqual(new Uint8Array([2]))
+  expect(n).toBe(3)
+
+  n = 0
+  const busy = { checkTryOn: async () => { throw new Error("503") } }
+  expect((await drawTryOn(images, busy, { prompt: "x", labels: ["a"], width: 1, height: 1 }))?.bytes).toEqual(new Uint8Array([1]))
+  expect(n).toBe(1)
+})
+
+it("matches the checker's piece names even when shortened", async () => {
+  const ask = (async () => ({ fullBody: true, missing: ["Blue Denim Jeans", "a hat"] })) as unknown as Ask
+  const check = await createStylist(ask).checkTryOn({ image: { data: "", mediaType: "image/jpeg" }, pieces: ["top: Yellow Cotton Kurta", "bottoms: Blue Denim Jeans"] })
+  expect(check.missing).toEqual(["bottoms: Blue Denim Jeans"])
 })

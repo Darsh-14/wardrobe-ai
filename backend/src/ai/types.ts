@@ -71,6 +71,14 @@ export const LookResult = z.object({
 })
 export type LookResult = z.infer<typeof LookResult>
 
+export const TryOnCheck = z.object({
+  fullBody: z.boolean().describe("true only if the whole person is in the picture, from the top of the head down to both feet"),
+  missing: z
+    .array(z.string())
+    .describe("each listed piece that is not clearly visible being worn (cut off, hidden, left out or replaced by a different garment), copied exactly from the list; empty when every piece is visible"),
+})
+export type TryOnCheck = z.infer<typeof TryOnCheck>
+
 export const RecommendationResult = z.object({
   ownedItemId: z.string().describe("Id of the owned item the purchase unlocks the most with"),
   productName: z.string(),
@@ -120,6 +128,8 @@ export interface StylistAI {
   recommend(input: { wardrobe: ItemForAI[]; profile: ProfileForAI }): Promise<RecommendationResult>
   shopping(input: { prompt: string; wardrobe: ItemForAI[]; profile: ProfileForAI }): Promise<ShoppingResult>
   cityTrends(input: { city: string; month: string }): Promise<TrendsResult>
+  /** Looks at a generated try-on picture: is the whole person in frame, and which pieces can't be seen? */
+  checkTryOn(input: { image: { data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif" }; pieces: string[] }): Promise<TryOnCheck>
 }
 
 export type ImageBytes = { bytes: Uint8Array; contentType: string }
