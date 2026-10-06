@@ -405,11 +405,13 @@ function Wardrobe({ go }: { go: (s: Screen)=>void }) {
     items.setData(wardrobeItems.map((i) => (i.id === id ? { ...i, favorite } : i)));
     api.setFavorite(id, favorite).catch(() => items.reload());
   };
-  // studio photos are made in the background: check back a couple of times while some are missing
+  // studio photos are made in the background, one item at a time: keep checking for about ten
+  // minutes while some are missing (a new wardrobe takes several minutes)
   const missingStudio = wardrobeItems.some((i) => !i.studioUrl);
   const checks = useRef(0);
+  useEffect(() => { checks.current = 0; }, [category]);
   useEffect(() => {
-    if (!missingStudio || items.loading || checks.current >= 3) return;
+    if (!missingStudio || items.loading || checks.current >= 20) return;
     const t = window.setTimeout(() => { checks.current++; void items.reload(); }, 30000);
     return () => window.clearTimeout(t);
   }, [missingStudio, items.loading, items.data]);

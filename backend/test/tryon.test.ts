@@ -1,5 +1,6 @@
+import sharp from "sharp"
 import { expect, it } from "vitest"
-import { createImageAI } from "../src/ai/images.js"
+import { createImageAI, fitReference } from "../src/ai/images.js"
 import type { ItemRow, LookRow } from "../src/queries.js"
 import { tryOnPrompt } from "../src/tryon.js"
 import { studioEditPrompt, studioPrompt } from "../src/studio.js"
@@ -117,6 +118,36 @@ it("edits from the user's own photos with FLUX.2 klein", async () => {
     "A man at the office. Images 0 to 1 are the user's own clothes: dress the person in exactly these pieces, keeping their colours, wash, prints, details and cut. Image 2 is the person's face: the person must look like them.",
   )
   expect((forms[1].form.get("input_image_2") as Blob).type).toBe("image/png")
+})
+
+it("shrinks phone photos below the 512x512 FLUX.2 limit before sending them", async () => {
+  const forms: FormData[] = []
+  const cf = createImageAI({
+    replicateImageModel: "",
+    replicateBgModel: "",
+    freeImages: "none",
+    pollinationsUrl: "",
+    cloudflare: { accountId: "acc", token: "tok", model: "m1", editModel: "@cf/black-forest-labs/flux-2-klein-4b" },
+    fetch: (async (_url: string, init: RequestInit) => {
+      forms.push(init.body as FormData)
+      return Response.json({ result: { image: Buffer.from([0xff, 1]).toString("base64") } })
+    }) as typeof fetch,
+  })
+  const phone = await sharp({ create: { width: 1200, height: 1600, channels: 3, background: "#4a6fa5" } }).jpeg().toBuffer()
+  const cutout = await sharp({ create: { width: 900, height: 700, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer()
+  await cf.generate({
+    prompt: "x",
+    garments: [{ bytes: new Uint8Array(phone), contentType: "image/jpeg" }, { bytes: new Uint8Array(cutout), contentType: "image/png" }],
+  })
+  for (const [i, type] of [[0, "image/jpeg"], [1, "image/png"]] as const) {
+    const blob = forms[0].get(`input_image_${i}`) as Blob
+    expect(blob.type).toBe(type)
+    const meta = await sharp(Buffer.from(await blob.arrayBuffer())).metadata()
+    expect(Math.max(meta.width!, meta.height!)).toBeLessThan(512)
+  }
+  // already small enough: sent untouched
+  const small = { bytes: new Uint8Array(await sharp({ create: { width: 300, height: 400, channels: 3, background: "#fff" } }).jpeg().toBuffer()), contentType: "image/jpeg" }
+  expect(await fitReference(small)).toBe(small)
 })
 
 it("asks to keep the same garment and fill in hidden parts", () => {

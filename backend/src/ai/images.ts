@@ -13,6 +13,7 @@
 // Background removal for wardrobe photos runs in the browser (frontend/src/lib/cutout.ts); the
 // Replicate remover here is only used when a token is set.
 import { GoogleGenAI, type Part } from "@google/genai"
+import sharp from "sharp"
 import type { ImageAI, ImageBytes, TryOnRequest } from "./types.js"
 
 type Provider = { name: string; generate(req: TryOnRequest): Promise<ImageBytes> }
@@ -103,7 +104,9 @@ function cloudflare(cf: { accountId: string; token: string; model: string; editM
     if (refs.length) {
       const form = new FormData()
       form.append("prompt", `${req.prompt} ${referenceNote({ ...req, garments: refs.slice(0, req.face ? -1 : undefined) })}`.trim().slice(0, 2000))
-      refs.forEach((r, i) => form.append(`input_image_${i}`, new Blob([r.bytes as Uint8Array<ArrayBuffer>], { type: r.contentType }), `ref${i}`))
+      // Workers AI rejects FLUX.2 reference photos of 512x512 or more, so phone photos are shrunk first
+      const small = await Promise.all(refs.map((r) => fitReference(r)))
+      small.forEach((r, i) => form.append(`input_image_${i}`, new Blob([r.bytes as Uint8Array<ArrayBuffer>], { type: r.contentType }), `ref${i}`))
       form.append("width", String(req.width ?? 768))
       form.append("height", String(req.height ?? 1024))
       res = await http(url(cf.editModel), { method: "POST", headers: { Authorization: `Bearer ${cf.token}` }, body: form, signal: AbortSignal.timeout(120_000) })
@@ -184,6 +187,25 @@ function replicateRunner(token: string, http: typeof fetch) {
 }
 
 const base64 = (b: Uint8Array) => Buffer.from(b).toString("base64")
+
+// "All input images must be smaller than 512x512" (Cloudflare's FLUX.2 docs)
+export const MAX_REFERENCE_SIDE = 504
+
+/** Shrinks a reference photo to fit inside MAX_REFERENCE_SIDE; cutouts keep their transparency */
+export async function fitReference(img: ImageBytes): Promise<ImageBytes> {
+  try {
+    const pic = sharp(img.bytes).rotate()
+    const meta = await pic.metadata()
+    if (meta.width && meta.height && Math.max(meta.width, meta.height) <= MAX_REFERENCE_SIDE) return img
+    const resized = pic.resize(MAX_REFERENCE_SIDE, MAX_REFERENCE_SIDE, { fit: "inside", withoutEnlargement: true })
+    return meta.hasAlpha
+      ? { bytes: new Uint8Array(await resized.png().toBuffer()), contentType: "image/png" }
+      : { bytes: new Uint8Array(await resized.jpeg({ quality: 90 }).toBuffer()), contentType: "image/jpeg" }
+  } catch {
+    // not a picture sharp can read: send it as it is and let the provider decide
+    return img
+  }
+}
 
 /** Framing for the stylist's one-line picture prompts (recommendations, shopping, trends) */
 export const editorial = (prompt: string) => `Editorial fashion photo, full body, natural light, plain city background. ${prompt}`
